@@ -6,26 +6,9 @@ from datetime import datetime
 from typing import Protocol
 
 from sat_sim.ecs import Entity, World
+from sat_sim.position import ECIPosition, ECIVelocity
 
 _KILOMETERS_TO_METERS = 1_000.0
-
-
-@dataclass(slots=True)
-class ECIPosition:
-    """Earth-Centered Inertial Cartesian position in meters."""
-
-    x: float
-    y: float
-    z: float
-
-
-@dataclass(slots=True)
-class ECIVelocity:
-    """Earth-Centered Inertial Cartesian velocity in meters per second."""
-
-    x: float
-    y: float
-    z: float
 
 
 class OrbitalLike(Protocol):

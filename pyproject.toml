@@ -12,9 +12,14 @@ dependencies = [
     "pyorbital>=1.13.0",
 ]
 
+[project.scripts]
+sat-sim = "sat_sim.app:main"
+
 [dependency-groups]
 dev = [
+    "mypy>=1.14",
     "pytest>=8.3",
+    "pytest-cov>=6.0",
     "ruff>=0.9",
 ]
 
@@ -23,13 +28,27 @@ packages = ["src/sat_sim"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=sat_sim --cov-report=term-missing"
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = "pyorbital.*"
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "C4"]
 
 [tool.ruff.format]
 quote-style = "double"

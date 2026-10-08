@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from sat_sim.ecs import World
-from sat_sim.position import Position
+from sat_sim.position import ECEFPosition
 from sat_sim.scenario import Scenario
 from sat_sim.simulation import Simulation, Velocity, create_satellite
 
@@ -11,9 +11,9 @@ from sat_sim.simulation import Simulation, Velocity, create_satellite
 def test_create_satellite_adds_ecef_position_and_velocity() -> None:
     world = World()
 
-    entity = create_satellite(world, Position(10, 20, 30), Velocity(2, -1, 0.5))
+    entity = create_satellite(world, ECEFPosition(10, 20, 30), Velocity(2, -1, 0.5))
 
-    assert world.get(entity, Position) == Position(10, 20, 30)
+    assert world.get(entity, ECEFPosition) == ECEFPosition(10, 20, 30)
     assert world.get(entity, Velocity) == Velocity(2, -1, 0.5)
 
 
@@ -57,9 +57,9 @@ def test_simulation_sets_up_scenario_and_schedules_steps() -> None:
         printer=lambda timestamp, state: printed.append((timestamp, state)),
     )
     simulation.setup(setup_timestamp)
-
-    with pytest.raises(KeyboardInterrupt):
-        simulation.run()
+    # The fake sleeper raises KeyboardInterrupt on the second delay,
+    # which run() handles internally to stop the simulation.
+    simulation.run()
 
     assert scenario.setup_timestamps == [setup_timestamp]
     assert scenario.step_timestamps == [
@@ -87,9 +87,7 @@ def test_simulation_run_sets_up_scenario_when_needed() -> None:
         timestamp_factory=lambda: next(timestamps),
         printer=lambda _timestamp, _state: None,
     )
-
-    with pytest.raises(KeyboardInterrupt):
-        simulation.run()
+    simulation.run()
 
     assert len(scenario.setup_timestamps) == 1
     assert len(scenario.step_timestamps) == 1

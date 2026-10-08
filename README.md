@@ -26,6 +26,12 @@ Run the starter application:
 uv run python -m sat_sim
 ```
 
+or with the installed console script:
+
+```shell
+uv run sat-sim
+```
+
 Run the live ISS scenario. It fetches the current ISS TLE from CelesTrak,
 then prints the propagated ECI position immediately and once per second:
 
@@ -33,10 +39,12 @@ then prints the propagated ECI position immediately and once per second:
 uv run python -m sat_sim.iss_scenario
 ```
 
-The simulation runs continuously until you press `Ctrl+C`. It fetches the TLE
-once during `ISSScenario.setup()`, reuses one orbital propagator, and uses a
-monotonic clock to avoid accumulating drift. The ISS scenario requires network
-access, and its HTTP request has a 10-second timeout.
+The simulation runs continuously until you press `Ctrl+C`. `Simulation.run()`
+handles `KeyboardInterrupt` internally and returns when stopped. It fetches
+the TLE once during `ISSScenario.setup()`, reuses one orbital propagator, and
+uses a monotonic clock to avoid accumulating drift. The ISS scenario requires
+network access; its HTTP request has a 10-second timeout, and transient network
+errors are retried twice with a one-second delay between attempts.
 
 ## Scenario architecture
 
@@ -54,7 +62,7 @@ from sat_sim.iss_scenario import ISSScenario, print_iss_position
 from sat_sim.simulation import Simulation
 
 simulation = Simulation(ISSScenario(), printer=print_iss_position)
-simulation.run()  # Ctrl+C stops the simulation
+simulation.run()  # returns when interrupted with Ctrl+C
 ```
 
 The ISS-specific class fetches its TLE and creates its ECS entity in `setup()`;
@@ -144,9 +152,11 @@ Format the project:
 uv run ruff format .
 ```
 
-Check lint and formatting rules:
+Check lint, formatting, types, and coverage:
 
 ```shell
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy
+uv run pytest  # runs with coverage; fails below 90%
 ```

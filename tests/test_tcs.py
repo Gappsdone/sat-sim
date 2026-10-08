@@ -22,7 +22,7 @@ def test_configurable_channel_count_and_initial_temperature() -> None:
     assert len(tcs.sensors) == 3
     assert len(tcs.heaters) == 3
     assert [sensor.temperature_celsius for sensor in tcs.sensors] == [20.0] * 3
-    assert [heater.wattage for heater in tcs.heaters] == [5.0, 10.0, 15.0]
+    assert [heater.power for heater in tcs.heaters] == [5.0, 10.0, 15.0]
 
 
 def test_active_heater_increases_only_its_paired_sensor() -> None:

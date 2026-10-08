@@ -87,7 +87,10 @@ class World:
         ]
         candidates = set.intersection(*(set(store) for store in stores))
         for entity in sorted(candidates):
-            yield (entity, *(store[entity] for store in stores))
+            # The component stores are untyped at runtime, so the unpacked
+            # generator is typed as ``object`` even though the stores are
+            # keyed by concrete component types.
+            yield (entity, *(store[entity] for store in stores))  # type: ignore[arg-type]
 
     def _require_entity(self, entity: Entity) -> None:
         if entity not in self._alive:

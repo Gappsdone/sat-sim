@@ -3,16 +3,15 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sat_sim.ecs import World
 from sat_sim.iss_scenario import ISSScenario
-from sat_sim.orbital import ECIPosition, ECIVelocity
+from sat_sim.orbital import ECIVelocity
 from sat_sim.scenario import (
     ISS_TLE_URL,
     TLE,
     Scenario,
+    TleFetcher,
     create_iss_orbital,
     fetch_iss_tle,
-    run_iss_scenario,
 )
 
 ISS_TLE = """ISS (ZARYA)
@@ -21,7 +20,7 @@ ISS_TLE = """ISS (ZARYA)
 """
 
 
-def make_fetcher(calls: list[tuple[str, float]]):
+def make_fetcher(calls: list[tuple[str, float]]) -> TleFetcher:
     def fetch(url: str, timeout: float) -> str:
         calls.append((url, timeout))
         return ISS_TLE
@@ -53,6 +52,59 @@ def test_fetch_iss_tle_rejects_invalid_response() -> None:
 
     with pytest.raises(ValueError, match="valid two-line element"):
         fetch_iss_tle(fetcher=fetch)
+
+
+def test_fetch_iss_tle_requires_valid_tle_line_format() -> None:
+    line2 = "2 25544  51.6455  18.3234 0002187  86.1767 273.9526 15.48915313263513"
+
+    def fetch(_url: str, _timeout: float) -> str:
+        return f"1 bogus line\n{line2}\n"
+
+    with pytest.raises(ValueError, match="valid two-line element"):
+        fetch_iss_tle(fetcher=fetch)
+
+
+def test_fetch_iss_tle_defaults_name_when_pair_leads_response() -> None:
+    text = (
+        "1 25544U 98067A   21001.59097222  .00001264  00000-0  29602-4 0  9996\n"
+        "2 25544  51.6455  18.3234 0002187  86.1767 273.9526 15.48915313263513\n"
+    )
+
+    tle = fetch_iss_tle(fetcher=lambda _url, _timeout: text)
+
+    assert tle.name == "ISS"
+
+
+def test_fetch_iss_tle_retries_transient_network_errors() -> None:
+    calls: list[tuple[str, float]] = []
+    delays: list[float] = []
+
+    def flaky_fetch(url: str, timeout: float) -> str:
+        calls.append((url, timeout))
+        if len(calls) == 1:
+            raise OSError("connection reset")
+        return ISS_TLE
+
+    tle = fetch_iss_tle(fetcher=flaky_fetch, sleeper=delays.append)
+
+    assert tle.name == "ISS (ZARYA)"
+    assert len(calls) == 2
+    assert delays == [1.0]
+
+
+def test_fetch_iss_tle_raises_after_exhausting_retries() -> None:
+    calls: list[tuple[str, float]] = []
+    delays: list[float] = []
+
+    def failing_fetch(url: str, timeout: float) -> str:
+        calls.append((url, timeout))
+        raise OSError("connection refused")
+
+    with pytest.raises(OSError, match="connection refused"):
+        fetch_iss_tle(fetcher=failing_fetch, sleeper=delays.append)
+
+    assert len(calls) == 3
+    assert delays == [1.0, 1.0]
 
 
 def test_create_iss_orbital_uses_fetched_tle() -> None:
@@ -89,14 +141,3 @@ def test_iss_scenario_requires_setup_before_step() -> None:
 
     with pytest.raises(RuntimeError, match="set up"):
         scenario.step(datetime(2021, 1, 1, tzinfo=UTC))
-
-
-def test_run_iss_scenario_compatibility_helper() -> None:
-    world, entity = run_iss_scenario(
-        datetime(2021, 1, 1, tzinfo=UTC),
-        fetcher=make_fetcher([]),
-    )
-
-    assert isinstance(world, World)
-    assert isinstance(world.get(entity, ECIPosition), ECIPosition)
-    assert isinstance(world.get(entity, ECIVelocity), ECIVelocity)
