@@ -1,12 +1,8 @@
 from datetime import UTC, datetime
 
 from sat_sim.ecs import World
-from sat_sim.orbital import (
-    ECIPosition,
-    ECIVelocity,
-    create_satellite_from_orbital,
-    propagate_orbital,
-)
+from sat_sim.orbital import create_satellite_from_orbital, propagate_orbital
+from sat_sim.position import ECIPosition, ECIVelocity
 
 
 class FakeOrbital:

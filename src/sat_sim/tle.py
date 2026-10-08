@@ -1,8 +1,7 @@
 import re
-
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.request import Request, urlopen
-from collections.abc import Callable
 
 from sat_sim import __version__
 
@@ -14,6 +13,7 @@ DEFAULT_RETRIES = 2
 DEFAULT_RETRY_DELAY = 1.0
 TleFetcher = Callable[[str, float], str]
 Sleeper = Callable[[float], None]
+
 
 @dataclass(frozen=True, slots=True)
 class TLE:

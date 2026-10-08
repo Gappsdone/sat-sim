@@ -15,7 +15,9 @@ class ECEFPosition:
     z: float
 
     @staticmethod
-    def from_lat_lon_alt(latitude: float, longitude: float, altitude: float) -> "ECEFPosition":
+    def from_lat_lon_alt(
+        latitude: float, longitude: float, altitude: float
+    ) -> "ECEFPosition":
         """Convert latitude, longitude, and altitude to ECEF Cartesian coordinates."""
 
         lat_rad = math.radians(latitude)
@@ -35,6 +37,7 @@ class ECEFPosition:
 
     def __repr__(self) -> str:
         return f"ECEFPosition(x={self.x:.5f}, y={self.y:.5f}, z={self.z:.5f})"
+
 
 @dataclass(slots=True, repr=False)
 class ECIPosition:
@@ -58,4 +61,3 @@ class ECIVelocity:
 
     def __repr__(self) -> str:
         return f"ECIVelocity(x={self.x:.5f}, y={self.y:.5f}, z={self.z:.5f})"
-
