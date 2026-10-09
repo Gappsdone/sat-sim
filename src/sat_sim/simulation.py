@@ -52,7 +52,7 @@ class Simulation:
         try:
             while True:
                 timestamp = self._timestamp_factory()
-                state = self.scenario.step(timestamp)
+                self.scenario.step(timestamp)
 
                 deadline += self.interval
                 self._sleeper(max(0.0, deadline - self._clock()))

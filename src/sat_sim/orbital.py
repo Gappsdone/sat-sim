@@ -1,7 +1,6 @@
 """Adapters for populating ECS components from pyorbital propagators."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
