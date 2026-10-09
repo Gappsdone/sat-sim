@@ -145,6 +145,31 @@ temperature is in degrees Celsius, and time is in seconds. This logarithmic
 attenuation is a qualitative grid interaction model, not a physical heat
 diffusion solver. `grid_spacing_m` and the channel count (1–9) are configurable.
 
+## PUS library (Python port)
+
+`pus_library` ports the Java library's PUS packet primitives into a Python
+module: packet identifiers and primary headers, TC/TM data-field headers, CUC
+time, time-sync quality, packet payload containers, source-packet creation and
+parsing, and CRC-16/CCITT-FALSE validation. Supported service type/subtype
+metadata is available through `service_data`; service payloads are retained as
+opaque bytes so service-specific application formats can be added without
+changing packet framing.
+
+```python
+from pus_library import SourcePacket, service_data
+
+ping = service_data(17, 1)  # TC(17,1)
+packet = SourcePacket.get_source_packet(ping, local_prid=1, destination_prid=100)
+wire_bytes = packet.get_bytes()
+assert packet.verify_crc()
+received = SourcePacket(wire_bytes, SourcePacket.DEFAULT_BYTE_ORDER)
+```
+
+The port's wire-format and regression tests are in `tests/test_pus_library.py`.
+The original Java JUnit suite is separate in the source library checkout; its
+Maven configuration skips tests by default, so run it explicitly with
+`mvn test -DskipTests=false`.
+
 ## ECS example
 
 Create a world, add a satellite with an ECEF position, and advance it with the

@@ -8,6 +8,7 @@ __pycache__/
 # Test and tooling caches
 .pytest_cache/
 .ruff_cache/
+.coverage
 
 # Build artifacts
 build/

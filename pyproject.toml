@@ -24,7 +24,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sat_sim"]
+packages = ["src/sat_sim", "src/pus_library"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
