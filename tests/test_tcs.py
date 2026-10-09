@@ -3,10 +3,16 @@ from math import isclose, log1p
 
 import pytest
 
+from sat_sim.ecs import World
+from sat_sim.position import ECIPosition
 from sat_sim.services.tcs import (
     EARTH_RADIUS_METERS,
     Heater,
+    HeaterCommand,
+    IlluminationState,
     PIDController,
+    PIDState,
+    TemperatureSensor,
     ThermalControlSystem,
     satellite_is_sunlit,
     solar_direction_eci,
@@ -76,6 +82,31 @@ def test_configurable_channels_use_first_cells_and_pair_each_heater() -> None:
     ]
     assert [sensor.temperature_celsius for sensor in tcs.sensors] == [20.0] * 3
     assert [heater.power for heater in tcs.heaters] == [5.0, 10.0, 15.0]
+
+
+def test_thermal_channel_state_is_stored_as_ecs_components() -> None:
+    tcs = make_tcs(sensor_count=2)
+
+    channels = list(tcs.world.query(TemperatureSensor, Heater, HeaterCommand, PIDState))
+    assert len(channels) == 2
+    assert [entity for entity, *_components in channels] == tcs.thermal_entities
+    assert tcs.spacecraft_entity is not None
+    assert tcs.world.has(tcs.spacecraft_entity, IlluminationState)
+    assert tcs.world.has(tcs.spacecraft_entity, ECIPosition)
+
+
+def test_tcs_can_bind_to_scenario_world_and_spacecraft_entity() -> None:
+    world = World()
+    spacecraft = world.create()
+    world.add(spacecraft, ECIPosition(7_000_000.0, 0.0, 0.0))
+    tcs = make_tcs(sensor_count=1)
+    tcs.bind_world(world)
+    tcs.bind_spacecraft_entity(spacecraft)
+
+    assert tcs.world is world
+    assert tcs.thermal_entities[0] != spacecraft
+    assert world.has(tcs.thermal_entities[0], TemperatureSensor)
+    assert world.has(spacecraft, IlluminationState)
 
 
 def test_setpoint_pid_modulates_heater_and_stops_at_setpoint() -> None:

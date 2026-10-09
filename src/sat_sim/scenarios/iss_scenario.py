@@ -16,6 +16,9 @@ from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.scenario import Scenario
 from sat_sim.services.tcs import (
     DEFAULT_HEATER_THRESHOLD_CELSIUS,
+    Heater,
+    HeaterCommand,
+    TemperatureSensor,
     ThermalControlSystem,
 )
 from sat_sim.simulation import Simulation
@@ -117,7 +120,9 @@ class ISSScenario(Scenario):
             ki=0.001,
             kd=0.02,
             heater_threshold_celsius=thermal_threshold_celsius,
+            world=self.world,
         )
+        self.tcs.bind_world(self.world)
         self.thermal_threshold_celsius = thermal_threshold_celsius
         self._last_thermal_timestamp: datetime | None = None
 
@@ -134,6 +139,7 @@ class ISSScenario(Scenario):
             self.orbital,
             timestamp,
         )
+        self.tcs.bind_spacecraft_entity(self.entity)
         self._last_thermal_timestamp = timestamp
 
     def step(self, timestamp: datetime) -> ISSScenarioState:
@@ -158,11 +164,7 @@ class ISSScenario(Scenario):
         if previous_timestamp is not None:
             delta_time = (timestamp - previous_timestamp).total_seconds()
             if delta_time > 0:
-                self.tcs.step(
-                    delta_time,
-                    (current_position.x, current_position.y, current_position.z),
-                    timestamp,
-                )
+                self.tcs.advance(delta_time, timestamp)
         self._last_thermal_timestamp = timestamp
 
         state = ISSScenarioState(
@@ -174,9 +176,13 @@ class ISSScenario(Scenario):
                 current_velocity.x, current_velocity.y, current_velocity.z
             ),
             temperatures_celsius=tuple(
-                sensor.temperature_celsius for sensor in self.tcs.sensors
+                sensor.temperature_celsius
+                for _entity, sensor in self.world.query(TemperatureSensor)
             ),
-            heater_outputs=tuple(heater.output_fraction for heater in self.tcs.heaters),
+            heater_outputs=tuple(
+                command.output_fraction
+                for _entity, command in self.world.query(HeaterCommand)
+            ),
             is_sunlit=self.tcs.is_sunlit,
         )
         self.print_state(state)
@@ -195,18 +201,20 @@ class ISSScenario(Scenario):
             else "eclipse"
         )
         print(f"\tThermal control ({illumination}):")
-        for sensor, heater in zip(self.tcs.sensors, self.tcs.heaters, strict=True):
+        for _entity, sensor, heater, command in self.world.query(
+            TemperatureSensor, Heater, HeaterCommand
+        ):
             setpoint_text = (
                 "manual"
-                if heater.manual_override
+                if command.manual_override
                 else f"{self.tcs.heater_threshold_celsius:.1f} °C"
                 if self.tcs.heater_threshold_celsius is not None
                 else "disabled"
             )
-            heater_watts = heater.power * heater.output_fraction
+            heater_watts = heater.power * command.output_fraction
             print(
                 f"\t\tChannel {sensor.id}: {sensor.temperature_celsius:.2f} °C; "
-                f"heater {heater.output_fraction * 100:.1f}% "
+                f"heater {command.output_fraction * 100:.1f}% "
                 f"({heater_watts:.2f}/{heater.power:.2f} W); "
                 f"threshold {setpoint_text}"
             )

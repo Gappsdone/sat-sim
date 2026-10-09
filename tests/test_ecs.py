@@ -45,9 +45,7 @@ def test_query_returns_matching_components_in_requested_order() -> None:
     world.add(entity, health)
     world.add(entity, name)
 
-    # World.query's signature returns untyped tuples, but the components
-    # here come from the concrete stores added above.
-    assert list(world.query(Name, Health)) == [(entity, name, health)]  # type: ignore[comparison-overlap]
+    assert list(world.query(Name, Health)) == [(entity, name, health)]
 
 
 def test_destroy_removes_entity_and_components() -> None:

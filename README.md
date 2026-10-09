@@ -80,9 +80,22 @@ The ISS-specific class fetches its TLE and creates its ECS entity in `setup()`;
 
 `ThermalControlSystem` provides nine paired temperature sensors and heaters by
 default. Pairs occupy a row-major 3x3 grid with one meter between neighbors;
-smaller channel counts use the first cells. Each sensor below the configured
-temperature threshold automatically drives its paired heater with a bounded
-PID controller (`kp=1.0`, `ki=0.0`, `kd=0.0` by default):
+smaller channel counts use the first cells. Each channel is stored as a thermal
+node entity in an ECS `World`, with `TemperatureSensor`, `Heater`,
+`HeaterCommand`, and `PIDState` components. The spacecraft illumination state is
+stored on its ECS entity as `IlluminationState`. In `ISSScenario`, orbital and
+thermal entities share the scenario's `World`.
+
+The TCS facade runs three systems in a fixed order: `IlluminationSystem`,
+`HeaterControlSystem`, then `ThermalDynamicsSystem`. Scenario telemetry is read
+from ECS queries into an immutable snapshot. The compatibility `sensors` and
+`heaters` properties return channel-ordered views; new code should query the ECS
+world directly. The full design and known limitations are documented in
+[`docs/thermal-control-ecs-hla.md`](docs/thermal-control-ecs-hla.md).
+
+Each sensor below the configured temperature threshold automatically drives its
+paired heater with a bounded PID controller (`kp=1.0`, `ki=0.0`, `kd=0.0` by
+default):
 
 ```python
 from datetime import UTC, datetime
@@ -95,8 +108,7 @@ tcs = ThermalControlSystem(
     heater_threshold_celsius=22.0,
     kp=0.1,
 )
-# Automatically controls each paired heater below 22 °C; computes eclipse
-# from this Earth-centered inertial position and the UTC timestamp.
+# Runs illumination, heater-control, then thermal-dynamics systems.
 tcs.step(1.0, (6_700_000.0, 0.0, 0.0), datetime.now(UTC))
 
 # Manual full-power operation remains available:

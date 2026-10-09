@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import cos, hypot, isfinite, log1p, radians, sin, sqrt
+
+from sat_sim.ecs import Entity, World
+from sat_sim.position import ECIPosition
 
 DEFAULT_SENSOR_COUNT = 9
 GRID_WIDTH = 3
@@ -13,6 +17,33 @@ EARTH_RADIUS_METERS = 6_371_000.0
 DEFAULT_HEATER_THRESHOLD_CELSIUS = 22.0
 DEFAULT_SUNLIT_WARMING_RATE_CELSIUS_PER_SECOND = 0.02
 DEFAULT_ECLIPSE_COOLING_RATE_CELSIUS_PER_SECOND = 0.01
+
+
+@dataclass
+class PIDState:
+    """Mutable controller history stored as an ECS component."""
+
+    integral: float = 0.0
+    previous_measurement: float | None = None
+
+
+@dataclass
+class IlluminationState:
+    """Spacecraft illumination and position supplied to thermal systems."""
+
+    is_sunlit: bool | None = None
+    position_m: tuple[float, float, float] | None = None
+
+
+@dataclass
+class HeaterCommand:
+    """Per-channel requested output and operator/automatic control mode."""
+
+    output_fraction: float = 0.0
+    active: bool = False
+    setpoint_celsius: float | None = None
+    manual_override: bool = False
+    automatic_control_enabled: bool = True
 
 
 class TemperatureSensor:
@@ -49,6 +80,7 @@ class PIDController:
         *,
         output_min: float = 0.0,
         output_max: float = 1.0,
+        state: PIDState | None = None,
     ) -> None:
         for name, value in (("kp", kp), ("ki", ki), ("kd", kd)):
             _require_finite(name, value)
@@ -63,8 +95,23 @@ class PIDController:
         self.kd = float(kd)
         self.output_min = float(output_min)
         self.output_max = float(output_max)
-        self._integral = 0.0
-        self._previous_measurement: float | None = None
+        self.state = state if state is not None else PIDState()
+
+    @property
+    def _integral(self) -> float:
+        return self.state.integral
+
+    @_integral.setter
+    def _integral(self, value: float) -> None:
+        self.state.integral = value
+
+    @property
+    def _previous_measurement(self) -> float | None:
+        return self.state.previous_measurement
+
+    @_previous_measurement.setter
+    def _previous_measurement(self, value: float | None) -> None:
+        self.state.previous_measurement = value
 
     def reset(self) -> None:
         """Clear accumulated integral and derivative history."""
@@ -123,11 +170,51 @@ class Heater:
         self.power = float(power)
         self.position = position
         self.pid = pid if pid is not None else PIDController()
-        self.active = bool(active)
-        self.setpoint_celsius: float | None = None
-        self.output_fraction = 1.0 if active else 0.0
-        self._manual_override = bool(active)
-        self.automatic_control_enabled = True
+        self.command = HeaterCommand(
+            output_fraction=1.0 if active else 0.0,
+            active=bool(active),
+            manual_override=bool(active),
+        )
+
+    @property
+    def active(self) -> bool:
+        return self.command.active
+
+    @active.setter
+    def active(self, value: bool) -> None:
+        self.command.active = bool(value)
+
+    @property
+    def output_fraction(self) -> float:
+        return self.command.output_fraction
+
+    @output_fraction.setter
+    def output_fraction(self, value: float) -> None:
+        self.command.output_fraction = value
+
+    @property
+    def setpoint_celsius(self) -> float | None:
+        return self.command.setpoint_celsius
+
+    @setpoint_celsius.setter
+    def setpoint_celsius(self, value: float | None) -> None:
+        self.command.setpoint_celsius = value
+
+    @property
+    def _manual_override(self) -> bool:
+        return self.command.manual_override
+
+    @_manual_override.setter
+    def _manual_override(self, value: bool) -> None:
+        self.command.manual_override = value
+
+    @property
+    def automatic_control_enabled(self) -> bool:
+        return self.command.automatic_control_enabled
+
+    @automatic_control_enabled.setter
+    def automatic_control_enabled(self, value: bool) -> None:
+        self.command.automatic_control_enabled = value
 
     @property
     def manual_override(self) -> bool:
@@ -148,6 +235,106 @@ class Heater:
         self.activate(False)
         self.setpoint_celsius = None
         self.automatic_control_enabled = False
+
+
+@dataclass
+class ThermalConfiguration:
+    """Tunable thermal-system parameters, separate from per-entity state."""
+
+    heating_rate: float
+    grid_spacing_m: float
+    heater_threshold_celsius: float | None
+    sunlit_warming_rate_celsius_per_second: float
+    eclipse_cooling_rate_celsius_per_second: float
+
+
+class IlluminationSystem:
+    """Update spacecraft illumination state from ECI position and UTC time."""
+
+    @staticmethod
+    def update(world: World, entity: Entity, timestamp: datetime) -> IlluminationState:
+        position = world.get(entity, ECIPosition)
+        position_m = (position.x, position.y, position.z)
+        if not world.has(entity, IlluminationState):
+            world.add(entity, IlluminationState())
+        state = world.get(entity, IlluminationState)
+        state.is_sunlit = satellite_is_sunlit(position_m, timestamp)
+        state.position_m = position_m
+        return state
+
+
+class HeaterControlSystem:
+    """Calculate heater commands from ECS temperature and actuator state."""
+
+    @staticmethod
+    def update(world: World, delta_time: float, threshold: float | None) -> None:
+        _validate_delta_time(delta_time)
+        for _entity, sensor, heater, command, _pid_state in world.query(
+            TemperatureSensor, Heater, HeaterCommand, PIDState
+        ):
+            measurement = sensor.temperature_celsius
+            setpoint = (
+                command.setpoint_celsius
+                if command.setpoint_celsius is not None
+                else threshold
+            )
+            if command.manual_override:
+                output = 1.0
+            elif (
+                command.automatic_control_enabled
+                and setpoint is not None
+                and measurement < setpoint
+            ):
+                output = heater.pid.update(setpoint, measurement, delta_time)
+            else:
+                output = 0.0
+                heater.pid.reset()
+            command.output_fraction = output
+            command.active = output > 0.0
+
+
+class ThermalDynamicsSystem:
+    """Apply heater heat and environmental effects to ECS temperature state."""
+
+    @staticmethod
+    def update(
+        world: World,
+        delta_time: float,
+        configuration: ThermalConfiguration,
+        is_sunlit: bool,
+    ) -> None:
+        channels = list(world.query(TemperatureSensor, Heater, HeaterCommand))
+        environmental_rate = (
+            configuration.sunlit_warming_rate_celsius_per_second
+            if is_sunlit
+            else -configuration.eclipse_cooling_rate_celsius_per_second
+        )
+        deltas = {entity: 0.0 for entity, _sensor, _heater, _command in channels}
+        for _heater_entity, _heater_sensor, heater, command in channels:
+            output = command.output_fraction
+            if output <= 0.0 or heater.power <= 0.0:
+                continue
+            for (
+                target_entity,
+                target_sensor,
+                _target_heater,
+                _target_command,
+            ) in channels:
+                distance_m = hypot(
+                    heater.position[0] - target_sensor.position[0],
+                    heater.position[1] - target_sensor.position[1],
+                )
+                attenuation = 1.0 / (1.0 + log1p(distance_m))
+                deltas[target_entity] += (
+                    heater.power
+                    * configuration.heating_rate
+                    * output
+                    * delta_time
+                    * attenuation
+                )
+        for entity, sensor, _heater, _command in channels:
+            deltas[entity] += environmental_rate * delta_time
+            sensor.temperature_celsius += deltas[entity]
 
 
 class ThermalControlSystem:
@@ -177,6 +364,7 @@ class ThermalControlSystem:
         eclipse_cooling_rate_celsius_per_second: float = (
             DEFAULT_ECLIPSE_COOLING_RATE_CELSIUS_PER_SECOND
         ),
+        world: World | None = None,
     ) -> None:
         if not isinstance(sensor_count, int) or isinstance(sensor_count, bool):
             raise ValueError("sensor_count must be an integer from 1 to 9")
@@ -216,21 +404,21 @@ class ThermalControlSystem:
             if power < 0:
                 raise ValueError("wattage must not be negative")
 
-        self.heating_rate = float(heating_rate)
-        self.grid_spacing_m = float(grid_spacing_m)
-        self.heater_threshold_celsius = (
-            None
-            if heater_threshold_celsius is None
-            else float(heater_threshold_celsius)
+        self.configuration = ThermalConfiguration(
+            heating_rate=float(heating_rate),
+            grid_spacing_m=float(grid_spacing_m),
+            heater_threshold_celsius=(
+                None
+                if heater_threshold_celsius is None
+                else float(heater_threshold_celsius)
+            ),
+            sunlit_warming_rate_celsius_per_second=float(
+                sunlit_warming_rate_celsius_per_second
+            ),
+            eclipse_cooling_rate_celsius_per_second=float(
+                eclipse_cooling_rate_celsius_per_second
+            ),
         )
-        self.sunlit_warming_rate_celsius_per_second = float(
-            sunlit_warming_rate_celsius_per_second
-        )
-        self.eclipse_cooling_rate_celsius_per_second = float(
-            eclipse_cooling_rate_celsius_per_second
-        )
-        self.is_sunlit: bool | None = None
-        self.satellite_position_m: tuple[float, float, float] | None = None
         positions = [
             (
                 float(index % GRID_WIDTH) * self.grid_spacing_m,
@@ -238,11 +426,11 @@ class ThermalControlSystem:
             )
             for index in range(sensor_count)
         ]
-        self.sensors = [
+        sensors = [
             TemperatureSensor(index, initial_temperature, positions[index])
             for index in range(sensor_count)
         ]
-        self.heaters = [
+        heaters = [
             Heater(
                 index,
                 power,
@@ -251,6 +439,123 @@ class ThermalControlSystem:
             )
             for index, power in enumerate(powers)
         ]
+        self.world = world if world is not None else World()
+        self.thermal_entities: list[Entity] = []
+        self.spacecraft_entity: Entity | None = None
+        if world is None:
+            self.spacecraft_entity = self.world.create()
+            self.world.add(self.spacecraft_entity, ECIPosition(0.0, 0.0, 0.0))
+            self.world.add(self.spacecraft_entity, IlluminationState())
+        for sensor, heater in zip(sensors, heaters, strict=True):
+            entity = self.world.create()
+            self.world.add(entity, sensor)
+            self.world.add(entity, heater)
+            self.world.add(entity, heater.command)
+            self.world.add(entity, heater.pid.state)
+            self.thermal_entities.append(entity)
+        self.illumination_system = IlluminationSystem()
+        self.heater_control_system = HeaterControlSystem()
+        self.thermal_dynamics_system = ThermalDynamicsSystem()
+
+    @property
+    def sensors(self) -> list[TemperatureSensor]:
+        """Compatibility view of sensor components in ECS entity order."""
+        return [
+            self.world.get(entity, TemperatureSensor)
+            for entity in self.thermal_entities
+        ]
+
+    @property
+    def heaters(self) -> list[Heater]:
+        """Compatibility view of heater components in ECS entity order."""
+        return [self.world.get(entity, Heater) for entity in self.thermal_entities]
+
+    def bind_spacecraft_entity(self, entity: Entity) -> None:
+        """Attach illumination state to the spacecraft entity in this world."""
+        if self.world is None:
+            raise RuntimeError("thermal system has no ECS world")
+        if not self.world.has(entity, ECIPosition):
+            raise KeyError(f"Entity {entity} has no ECIPosition component")
+        self.spacecraft_entity = entity
+        if not self.world.has(entity, IlluminationState):
+            self.world.add(entity, IlluminationState())
+
+    def bind_world(self, world: World) -> None:
+        """Move thermal-node components into a scenario-owned ECS world."""
+        if world is self.world:
+            return
+        sensors = self.sensors
+        heaters = self.heaters
+        for entity in self.thermal_entities:
+            self.world.destroy(entity)
+        self.world = world
+        self.thermal_entities = []
+        for sensor, heater in zip(sensors, heaters, strict=True):
+            entity = world.create()
+            world.add(entity, sensor)
+            world.add(entity, heater)
+            world.add(entity, heater.command)
+            world.add(entity, heater.pid.state)
+            self.thermal_entities.append(entity)
+        self.spacecraft_entity = None
+
+    @property
+    def illumination_state(self) -> IlluminationState:
+        if self.spacecraft_entity is None:
+            raise RuntimeError("thermal system is not bound to a spacecraft entity")
+        return self.world.get(self.spacecraft_entity, IlluminationState)
+
+    @property
+    def is_sunlit(self) -> bool | None:
+        if self.spacecraft_entity is None:
+            return None
+        return self.illumination_state.is_sunlit
+
+    @property
+    def heater_threshold_celsius(self) -> float | None:
+        return self.configuration.heater_threshold_celsius
+
+    @heater_threshold_celsius.setter
+    def heater_threshold_celsius(self, value: float | None) -> None:
+        self.configuration.heater_threshold_celsius = value
+
+    @property
+    def heating_rate(self) -> float:
+        return self.configuration.heating_rate
+
+    @heating_rate.setter
+    def heating_rate(self, value: float) -> None:
+        self.configuration.heating_rate = value
+
+    @property
+    def grid_spacing_m(self) -> float:
+        return self.configuration.grid_spacing_m
+
+    @grid_spacing_m.setter
+    def grid_spacing_m(self, value: float) -> None:
+        self.configuration.grid_spacing_m = value
+
+    @property
+    def sunlit_warming_rate_celsius_per_second(self) -> float:
+        return self.configuration.sunlit_warming_rate_celsius_per_second
+
+    @sunlit_warming_rate_celsius_per_second.setter
+    def sunlit_warming_rate_celsius_per_second(self, value: float) -> None:
+        self.configuration.sunlit_warming_rate_celsius_per_second = value
+
+    @property
+    def eclipse_cooling_rate_celsius_per_second(self) -> float:
+        return self.configuration.eclipse_cooling_rate_celsius_per_second
+
+    @eclipse_cooling_rate_celsius_per_second.setter
+    def eclipse_cooling_rate_celsius_per_second(self, value: float) -> None:
+        self.configuration.eclipse_cooling_rate_celsius_per_second = value
+
+    @property
+    def satellite_position_m(self) -> tuple[float, float, float] | None:
+        if self.spacecraft_entity is None:
+            return None
+        return self.illumination_state.position_m
 
     def set_setpoint(self, heater_index: int, temperature_celsius: float) -> None:
         """Enable PID control for one heater at a target temperature."""
@@ -296,63 +601,41 @@ class ThermalControlSystem:
         timestamp must be timezone-aware UTC so it can be used to approximate
         the Sun direction in the same inertial frame.
         """
+        _validate_delta_time(delta_time)
         if not isinstance(timestamp, datetime):
             raise ValueError("timestamp must be a datetime")
-        _validate_delta_time(delta_time)
-        is_sunlit = satellite_is_sunlit(satellite_position_m, timestamp)
-        self.is_sunlit = is_sunlit
-        self.satellite_position_m = satellite_position_m
-        environmental_rate = (
-            self.sunlit_warming_rate_celsius_per_second
-            if is_sunlit
-            else -self.eclipse_cooling_rate_celsius_per_second
-        )
-        outputs: list[float] = []
-        for index, heater in enumerate(self.heaters):
-            measurement = self.sensors[index].temperature_celsius
-            threshold = (
-                heater.setpoint_celsius
-                if heater.setpoint_celsius is not None
-                else self.heater_threshold_celsius
-            )
-            if heater._manual_override:
-                output = 1.0
-            elif (
-                heater.automatic_control_enabled
-                and threshold is not None
-                and measurement < threshold
-            ):
-                output = heater.pid.update(threshold, measurement, delta_time)
-            else:
-                output = 0.0
-                heater.pid.reset()
-            heater.output_fraction = output
-            heater.active = output > 0.0
-            outputs.append(output)
-
-        temperature_deltas = [0.0] * len(self.sensors)
-        for heater, output in zip(self.heaters, outputs, strict=True):
-            if output <= 0.0 or heater.power <= 0.0:
-                continue
-            for target_index, sensor in enumerate(self.sensors):
-                distance_m = hypot(
-                    heater.position[0] - sensor.position[0],
-                    heater.position[1] - sensor.position[1],
-                )
-                attenuation = 1.0 / (1.0 + log1p(distance_m))
-                temperature_deltas[target_index] += (
-                    heater.power * self.heating_rate * output * delta_time * attenuation
-                )
-
-        # Environmental sun/eclipse effects apply uniformly to each panel in
-        # this lumped model; planet/moon illumination and view factors are omitted.
-        for index in range(len(temperature_deltas)):
-            temperature_deltas[index] += environmental_rate * delta_time
-
-        for sensor, temperature_delta in zip(
-            self.sensors, temperature_deltas, strict=True
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+        if len(satellite_position_m) != 3 or not all(
+            isfinite(coordinate) for coordinate in satellite_position_m
         ):
-            sensor.temperature_celsius += temperature_delta
+            raise ValueError(
+                "satellite_position_m must contain three finite coordinates"
+            )
+        if self.spacecraft_entity is None:
+            raise RuntimeError("thermal system is not bound to a spacecraft entity")
+        spacecraft_position = self.world.get(self.spacecraft_entity, ECIPosition)
+        spacecraft_position.x, spacecraft_position.y, spacecraft_position.z = (
+            satellite_position_m
+        )
+        self.advance(delta_time, timestamp)
+
+    def advance(self, delta_time: float, timestamp: datetime) -> None:
+        """Run illumination, control, and dynamics against ECS state in order."""
+        _validate_delta_time(delta_time)
+        if not isinstance(timestamp, datetime):
+            raise ValueError("timestamp must be a datetime")
+        if self.spacecraft_entity is None:
+            raise RuntimeError("thermal system is not bound to a spacecraft entity")
+        self.illumination_system.update(self.world, self.spacecraft_entity, timestamp)
+        is_sunlit = self.is_sunlit
+        assert is_sunlit is not None
+        self.heater_control_system.update(
+            self.world, delta_time, self.heater_threshold_celsius
+        )
+        self.thermal_dynamics_system.update(
+            self.world, delta_time, self.configuration, is_sunlit
+        )
 
 
 def solar_direction_eci(timestamp: datetime) -> tuple[float, float, float]:

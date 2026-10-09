@@ -1,7 +1,7 @@
 """Small, type-indexed entity-component-system primitives."""
 
 from collections.abc import Iterator
-from typing import TypeVar
+from typing import Any, TypeVar
 
 Entity = int
 Component = TypeVar("Component")
@@ -70,7 +70,7 @@ class World:
         self._require_entity(entity)
         return entity in self._components.get(component_type, {})
 
-    def query(self, *component_types: type[object]) -> Iterator[tuple[Entity, ...]]:
+    def query(self, *component_types: Any) -> Iterator[Any]:
         """Yield matching entities followed by their components.
 
         Components appear in the same order as ``component_types``. With no
@@ -90,7 +90,7 @@ class World:
             # The component stores are untyped at runtime, so the unpacked
             # generator is typed as ``object`` even though the stores are
             # keyed by concrete component types.
-            yield (entity, *(store[entity] for store in stores))  # type: ignore[arg-type]
+            yield (entity, *(store[entity] for store in stores))
 
     def _require_entity(self, entity: Entity) -> None:
         if entity not in self._alive:

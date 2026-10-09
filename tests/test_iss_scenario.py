@@ -4,7 +4,12 @@ import pytest
 
 from sat_sim.position import ECIVelocity
 from sat_sim.scenarios.iss_scenario import ISSScenario
-from sat_sim.services.tcs import solar_direction_eci
+from sat_sim.services.tcs import (
+    HeaterCommand,
+    IlluminationState,
+    TemperatureSensor,
+    solar_direction_eci,
+)
 
 
 class FakeOrbital:
@@ -30,6 +35,8 @@ def test_setup_initializes_orbit_and_temperature_threshold(
 
     assert scenario.entity is not None
     assert scenario.orbital is not None
+    assert scenario.world.has(scenario.entity, IlluminationState)
+    assert len(list(scenario.world.query(TemperatureSensor, HeaterCommand))) == 9
     assert len(scenario.tcs.sensors) == len(scenario.tcs.heaters) == 9
     assert scenario.tcs.heater_threshold_celsius == 24.0
     assert scenario._last_thermal_timestamp == timestamp
@@ -68,6 +75,7 @@ def test_step_returns_and_prints_orbital_and_thermal_telemetry(
     assert "Velocity:" in output
     assert "Thermal control (sunlit):" in output
     assert "Channel 0:" in output
+    assert scenario.world is scenario.tcs.world
     assert scenario.tcs.satellite_position_m == (
         state.position.x,
         state.position.y,
