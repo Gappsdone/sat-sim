@@ -7,6 +7,7 @@ from sat_sim.scenarios.iss_scenario import ISSScenario
 from sat_sim.services.tcs import (
     HeaterCommand,
     IlluminationState,
+    SpacecraftAttitude,
     TemperatureSensor,
     solar_direction_eci,
 )
@@ -36,6 +37,7 @@ def test_setup_initializes_orbit_and_temperature_threshold(
     assert scenario.entity is not None
     assert scenario.orbital is not None
     assert scenario.world.has(scenario.entity, IlluminationState)
+    assert scenario.world.has(scenario.entity, SpacecraftAttitude)
     assert len(list(scenario.world.query(TemperatureSensor, HeaterCommand))) == 9
     assert len(scenario.tcs.sensors) == len(scenario.tcs.heaters) == 9
     assert scenario.tcs.heater_threshold_celsius == 24.0
@@ -82,6 +84,12 @@ def test_step_returns_and_prints_orbital_and_thermal_telemetry(
         state.position.z,
     )
     assert state.is_sunlit is True
+    assert scenario.entity is not None
+    attitude = scenario.world.get(scenario.entity, SpacecraftAttitude)
+    position_length = sum(component**2 for component in expected_position) ** 0.5
+    assert attitude.z_axis_eci == pytest.approx(
+        tuple(-component / position_length for component in expected_position)
+    )
     assert state.is_sunlit is True
     assert "sunlit" in output
     assert "threshold 25.0 °C" in output

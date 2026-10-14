@@ -86,12 +86,16 @@ node entity in an ECS `World`, with `TemperatureSensor`, `Heater`,
 stored on its ECS entity as `IlluminationState`. In `ISSScenario`, orbital and
 thermal entities share the scenario's `World`.
 
-The TCS facade runs three systems in a fixed order: `IlluminationSystem`,
-`HeaterControlSystem`, then `ThermalDynamicsSystem`. Scenario telemetry is read
+The TCS facade runs four systems in a fixed order: `AttitudeSystem`,
+`IlluminationSystem`, `HeaterControlSystem`, then `ThermalDynamicsSystem`.
+The spacecraft's `SpacecraftAttitude` component is updated from its current ECI
+position and velocity on each step: body +Z points toward Earth and body +X is
+the projected along-track direction. If no ECI velocity is present, the frame
+remains fixed (identity by default). Set `auto_orient=False` on the attitude
+component to supply a fixed frame explicitly. Scenario telemetry is read
 from ECS queries into an immutable snapshot. The compatibility `sensors` and
 `heaters` properties return channel-ordered views; new code should query the ECS
-world directly. The full design and known limitations are documented in
-[`docs/thermal-control-ecs-hla.md`](docs/thermal-control-ecs-hla.md).
+world directly.
 
 Each sensor below the configured temperature threshold automatically drives its
 paired heater with a bounded PID controller (`kp=1.0`, `ki=0.0`, `kd=0.0` by
@@ -117,6 +121,11 @@ tcs.step(1.0, (6_700_000.0, 0.0, 0.0), datetime.now(UTC))
 tcs.deactivate_heater(1)
 ```
 
+To model sensors on different faces, pass one body-frame normal per channel,
+for example `sensor_normals_body=[(1, 0, 0), (-1, 0, 0)]` with
+`sensor_count=2`. Opposing faces cannot both receive direct sunlight at the
+same instant. The normals are normalized when sensors are created.
+
 A PID output is clamped to 0–100% of the heater's rated wattage. Its derivative
 is based on measured temperature (avoiding setpoint kick), and integral
 accumulation uses conditional anti-windup. In automatic mode, each heater
@@ -128,10 +137,15 @@ automatic control until `enable_automatic_control(index)` is called.
 The TCS accepts the satellite's Earth-centered inertial position on every step.
 It estimates the Sun direction from UTC time, treats Earth as a spherical
 6,371 km opaque body, and classifies the spacecraft as eclipsed when it lies
-behind Earth inside a cylindrical umbra. It ignores penumbra, atmosphere, panel
-orientation, and all other celestial bodies. As an illustrative lumped model,
-all sensors warm by 0.02 °C/s in sunlight and cool by 0.01 °C/s in eclipse by
-default; both rates are configurable. Each heater independently runs PID while
+behind Earth inside a cylindrical umbra. It ignores penumbra, atmosphere, and
+all other celestial bodies. Each sensor has a unit normal in the spacecraft body
+frame (`sensor_normals_body` in the constructor); the default is body +Z for all
+nine sensors, modeling one planar grid. In sunlight, solar warming is scaled by
+`max(0, normal_ECI · sun_direction_ECI)`, so a sensor turned away from the Sun
+receives no direct solar heat. In eclipse, all sensors cool. The default maximum
+sun-facing warming rate is 0.02 °C/s and eclipse cooling is 0.01 °C/s; both are
+configurable. This is an illustrative direct-solar model, not a full radiative
+heat-transfer simulation. Each heater independently runs PID while
 its paired sensor is strictly below `heater_threshold_celsius` (22 °C by
 default), otherwise it turns off. Set the threshold to `None` to disable
 automatic heater control.

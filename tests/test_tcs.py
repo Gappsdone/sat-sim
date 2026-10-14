@@ -4,7 +4,7 @@ from math import isclose, log1p
 import pytest
 
 from sat_sim.ecs import World
-from sat_sim.position import ECIPosition
+from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.services.tcs import (
     EARTH_RADIUS_METERS,
     Heater,
@@ -12,6 +12,7 @@ from sat_sim.services.tcs import (
     IlluminationState,
     PIDController,
     PIDState,
+    SpacecraftAttitude,
     TemperatureSensor,
     ThermalControlSystem,
     satellite_is_sunlit,
@@ -201,7 +202,7 @@ def test_custom_spacing_and_heating_rate_scale_heat_transfer() -> None:
     assert isclose(tcs.sensors[1].temperature_celsius, 6.0 / (1.0 + log1p(2.0)))
 
 
-def test_sunlight_warms_all_sensors_and_tracks_satellite_position() -> None:
+def test_sunlight_warms_only_sun_facing_sensors_and_tracks_position() -> None:
     sun = solar_direction_eci(REFERENCE_TIME)
     position = (
         sun[0] * 7_000_000.0,
@@ -210,6 +211,7 @@ def test_sunlight_warms_all_sensors_and_tracks_satellite_position() -> None:
     )
     tcs = ThermalControlSystem(
         sensor_count=2,
+        sensor_normals_body=[sun, (-sun[0], -sun[1], -sun[2])],
         wattages=[0.0, 0.0],
         heater_threshold_celsius=None,
         sunlit_warming_rate_celsius_per_second=0.2,
@@ -220,7 +222,45 @@ def test_sunlight_warms_all_sensors_and_tracks_satellite_position() -> None:
 
     assert tcs.is_sunlit is True
     assert tcs.satellite_position_m == position
-    assert [sensor.temperature_celsius for sensor in tcs.sensors] == [1.0, 1.0]
+    assert [sensor.temperature_celsius for sensor in tcs.sensors] == pytest.approx(
+        [1.0, 0.0]
+    )
+
+
+def test_orbital_attitude_updates_before_solar_heating() -> None:
+    sun = solar_direction_eci(REFERENCE_TIME)
+    tcs = ThermalControlSystem(
+        sensor_count=2,
+        sensor_normals_body=[(0.0, 0.0, 1.0), (0.0, 0.0, -1.0)],
+        wattages=[0.0, 0.0],
+        heater_threshold_celsius=None,
+        sunlit_warming_rate_celsius_per_second=1.0,
+    )
+    entity = tcs.spacecraft_entity
+    assert entity is not None
+    # The orbital frame points body +Z toward Earth and -Z away from it.
+    tcs.world.add(entity, ECIVelocity(-sun[1], sun[0], 0.0))
+    tcs.step(
+        1.0,
+        (7_000_000.0 * sun[0], 7_000_000.0 * sun[1], 7_000_000.0 * sun[2]),
+        REFERENCE_TIME,
+    )
+    attitude = tcs.world.get(entity, SpacecraftAttitude)
+    assert attitude.z_axis_eci == pytest.approx(tuple(-component for component in sun))
+    assert [sensor.temperature_celsius for sensor in tcs.sensors] == pytest.approx(
+        [0.0, 1.0]
+    )
+
+    # A changed position rotates the same body-mounted sensor into sunlight.
+    tcs.step(
+        1.0,
+        (-7_000_000.0 * sun[0], -7_000_000.0 * sun[1], -7_000_000.0 * sun[2]),
+        REFERENCE_TIME,
+    )
+    assert tcs.is_sunlit is False
+    assert [sensor.temperature_celsius for sensor in tcs.sensors] == pytest.approx(
+        [-0.01, 0.99]
+    )
 
 
 def test_earth_shadow_cools_all_sensors_without_heaters() -> None:

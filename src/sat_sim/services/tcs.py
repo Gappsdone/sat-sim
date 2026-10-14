@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from math import cos, hypot, isfinite, log1p, radians, sin, sqrt
 
 from sat_sim.ecs import Entity, World
-from sat_sim.position import ECIPosition
+from sat_sim.position import ECIPosition, ECIVelocity
 
 DEFAULT_SENSOR_COUNT = 9
 GRID_WIDTH = 3
@@ -33,6 +33,17 @@ class IlluminationState:
 
     is_sunlit: bool | None = None
     position_m: tuple[float, float, float] | None = None
+    sun_direction_eci: tuple[float, float, float] | None = None
+
+
+@dataclass
+class SpacecraftAttitude:
+    """Body axes expressed in ECI; orbital mode points body +Z toward Earth."""
+
+    x_axis_eci: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    y_axis_eci: tuple[float, float, float] = (0.0, 1.0, 0.0)
+    z_axis_eci: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    auto_orient: bool = True
 
 
 @dataclass
@@ -54,6 +65,7 @@ class TemperatureSensor:
         id: int,
         temperature: float = 0.0,
         position: tuple[float, float] = (0.0, 0.0),
+        normal_body: tuple[float, float, float] = (0.0, 0.0, 1.0),
     ) -> None:
         _require_finite("temperature", temperature)
         if len(position) != 2 or not all(
@@ -63,6 +75,7 @@ class TemperatureSensor:
         self.id = id
         self.temperature_celsius = float(temperature)
         self.position = position
+        self.normal_body = _unit_vector("normal_body", normal_body)
 
 
 class PIDController:
@@ -260,7 +273,36 @@ class IlluminationSystem:
         state = world.get(entity, IlluminationState)
         state.is_sunlit = satellite_is_sunlit(position_m, timestamp)
         state.position_m = position_m
+        state.sun_direction_eci = solar_direction_eci(timestamp)
         return state
+
+
+class AttitudeSystem:
+    """Construct a nadir-pointing, along-track spacecraft frame each step."""
+
+    @staticmethod
+    def update(world: World, entity: Entity) -> SpacecraftAttitude:
+        attitude = world.get(entity, SpacecraftAttitude)
+        if not attitude.auto_orient or not world.has(entity, ECIVelocity):
+            return attitude
+        position = world.get(entity, ECIPosition)
+        velocity = world.get(entity, ECIVelocity)
+        z_axis = _unit_vector(
+            "spacecraft position", (-position.x, -position.y, -position.z)
+        )
+        velocity_vector = (velocity.x, velocity.y, velocity.z)
+        along_z = _dot(velocity_vector, z_axis)
+        along_track = (
+            velocity_vector[0] - along_z * z_axis[0],
+            velocity_vector[1] - along_z * z_axis[1],
+            velocity_vector[2] - along_z * z_axis[2],
+        )
+        x_axis = _unit_vector("along-track velocity", along_track)
+        y_axis = _cross(z_axis, x_axis)
+        attitude.x_axis_eci = x_axis
+        attitude.y_axis_eci = y_axis
+        attitude.z_axis_eci = z_axis
+        return attitude
 
 
 class HeaterControlSystem:
@@ -302,13 +344,10 @@ class ThermalDynamicsSystem:
         delta_time: float,
         configuration: ThermalConfiguration,
         is_sunlit: bool,
+        attitude: SpacecraftAttitude,
+        sun_direction_eci: tuple[float, float, float],
     ) -> None:
         channels = list(world.query(TemperatureSensor, Heater, HeaterCommand))
-        environmental_rate = (
-            configuration.sunlit_warming_rate_celsius_per_second
-            if is_sunlit
-            else -configuration.eclipse_cooling_rate_celsius_per_second
-        )
         deltas = {entity: 0.0 for entity, _sensor, _heater, _command in channels}
         for _heater_entity, _heater_sensor, heater, command in channels:
             output = command.output_fraction
@@ -333,7 +372,27 @@ class ThermalDynamicsSystem:
                     * attenuation
                 )
         for entity, sensor, _heater, _command in channels:
-            deltas[entity] += environmental_rate * delta_time
+            if is_sunlit:
+                nx, ny, nz = sensor.normal_body
+                normal_eci = tuple(
+                    nx * x + ny * y + nz * z
+                    for x, y, z in zip(
+                        attitude.x_axis_eci,
+                        attitude.y_axis_eci,
+                        attitude.z_axis_eci,
+                        strict=True,
+                    )
+                )
+                incidence = max(0.0, _dot(normal_eci, sun_direction_eci))
+                deltas[entity] += (
+                    configuration.sunlit_warming_rate_celsius_per_second
+                    * incidence
+                    * delta_time
+                )
+            else:
+                deltas[entity] -= (
+                    configuration.eclipse_cooling_rate_celsius_per_second * delta_time
+                )
             sensor.temperature_celsius += deltas[entity]
 
 
@@ -353,6 +412,7 @@ class ThermalControlSystem:
         wattages: Sequence[float] | None = None,
         heating_rate: float = 1.0,
         *,
+        sensor_normals_body: Sequence[tuple[float, float, float]] | None = None,
         kp: float = 1.0,
         ki: float = 0.0,
         kd: float = 0.0,
@@ -403,6 +463,13 @@ class ThermalControlSystem:
             _require_finite("wattage", power)
             if power < 0:
                 raise ValueError("wattage must not be negative")
+        normals = (
+            [(0.0, 0.0, 1.0)] * sensor_count
+            if sensor_normals_body is None
+            else list(sensor_normals_body)
+        )
+        if len(normals) != sensor_count:
+            raise ValueError("provide one normal per sensor")
 
         self.configuration = ThermalConfiguration(
             heating_rate=float(heating_rate),
@@ -427,7 +494,9 @@ class ThermalControlSystem:
             for index in range(sensor_count)
         ]
         sensors = [
-            TemperatureSensor(index, initial_temperature, positions[index])
+            TemperatureSensor(
+                index, initial_temperature, positions[index], normals[index]
+            )
             for index in range(sensor_count)
         ]
         heaters = [
@@ -446,6 +515,7 @@ class ThermalControlSystem:
             self.spacecraft_entity = self.world.create()
             self.world.add(self.spacecraft_entity, ECIPosition(0.0, 0.0, 0.0))
             self.world.add(self.spacecraft_entity, IlluminationState())
+            self.world.add(self.spacecraft_entity, SpacecraftAttitude())
         for sensor, heater in zip(sensors, heaters, strict=True):
             entity = self.world.create()
             self.world.add(entity, sensor)
@@ -454,6 +524,7 @@ class ThermalControlSystem:
             self.world.add(entity, heater.pid.state)
             self.thermal_entities.append(entity)
         self.illumination_system = IlluminationSystem()
+        self.attitude_system = AttitudeSystem()
         self.heater_control_system = HeaterControlSystem()
         self.thermal_dynamics_system = ThermalDynamicsSystem()
 
@@ -479,6 +550,8 @@ class ThermalControlSystem:
         self.spacecraft_entity = entity
         if not self.world.has(entity, IlluminationState):
             self.world.add(entity, IlluminationState())
+        if not self.world.has(entity, SpacecraftAttitude):
+            self.world.add(entity, SpacecraftAttitude())
 
     def bind_world(self, world: World) -> None:
         """Move thermal-node components into a scenario-owned ECS world."""
@@ -627,14 +700,23 @@ class ThermalControlSystem:
             raise ValueError("timestamp must be a datetime")
         if self.spacecraft_entity is None:
             raise RuntimeError("thermal system is not bound to a spacecraft entity")
-        self.illumination_system.update(self.world, self.spacecraft_entity, timestamp)
+        attitude = self.attitude_system.update(self.world, self.spacecraft_entity)
+        illumination = self.illumination_system.update(
+            self.world, self.spacecraft_entity, timestamp
+        )
         is_sunlit = self.is_sunlit
         assert is_sunlit is not None
+        assert illumination.sun_direction_eci is not None
         self.heater_control_system.update(
             self.world, delta_time, self.heater_threshold_celsius
         )
         self.thermal_dynamics_system.update(
-            self.world, delta_time, self.configuration, is_sunlit
+            self.world,
+            delta_time,
+            self.configuration,
+            is_sunlit,
+            attitude,
+            illumination.sun_direction_eci,
         )
 
 
@@ -700,6 +782,31 @@ def satellite_is_sunlit(
 def _require_finite(name: str, value: float) -> None:
     if not isfinite(value):
         raise ValueError(f"{name} must be finite")
+
+
+def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return sum(x * y for x, y in zip(a, b, strict=True))
+
+
+def _cross(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _unit_vector(
+    name: str, vector: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    if len(vector) != 3 or not all(isfinite(value) for value in vector):
+        raise ValueError(f"{name} must contain three finite coordinates")
+    length = sqrt(_dot(vector, vector))
+    if length == 0.0 or not isfinite(length):
+        raise ValueError(f"{name} must have a finite nonzero length")
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
 
 
 def _validate_delta_time(delta_time: float) -> None:
