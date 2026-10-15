@@ -86,7 +86,8 @@ node entity in an ECS `World`, with `TemperatureSensor`, `Heater`,
 stored on its ECS entity as `IlluminationState`. In `ISSScenario`, orbital and
 thermal entities share the scenario's `World`.
 
-The TCS facade runs four systems in a fixed order: `AttitudeSystem`,
+The attitude component and system live in `sat_sim.attitude`. The TCS facade
+runs four systems in a fixed order: `AttitudeSystem`,
 `IlluminationSystem`, `HeaterControlSystem`, then `ThermalDynamicsSystem`.
 The spacecraft's `SpacecraftAttitude` component is updated from its current ECI
 position and velocity on each step: body +Z points toward Earth and body +X is

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
 
+from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.ecs import Entity
 from sat_sim.orbital import (
     OrbitalLike,
@@ -139,6 +140,7 @@ class ISSScenario(Scenario):
             self.orbital,
             timestamp,
         )
+        self.world.add(self.entity, SpacecraftAttitude())
         self.tcs.bind_spacecraft_entity(self.entity)
         self._last_thermal_timestamp = timestamp
 

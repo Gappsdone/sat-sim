@@ -2,12 +2,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.position import ECIVelocity
 from sat_sim.scenarios.iss_scenario import ISSScenario
 from sat_sim.services.tcs import (
     HeaterCommand,
     IlluminationState,
-    SpacecraftAttitude,
     TemperatureSensor,
     solar_direction_eci,
 )

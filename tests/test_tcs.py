@@ -3,6 +3,7 @@ from math import isclose, log1p
 
 import pytest
 
+from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.ecs import World
 from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.services.tcs import (
@@ -12,7 +13,6 @@ from sat_sim.services.tcs import (
     IlluminationState,
     PIDController,
     PIDState,
-    SpacecraftAttitude,
     TemperatureSensor,
     ThermalControlSystem,
     satellite_is_sunlit,
