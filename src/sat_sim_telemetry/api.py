@@ -1,6 +1,7 @@
 """FastAPI routes for scenario metadata and live telemetry."""
 
 from collections.abc import Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from sat_sim_telemetry.models import ScenarioDescription, TelemetryFrame
 from sat_sim_telemetry.store import TelemetryStore
 
 DescriptionProvider = Callable[[], ScenarioDescription]
+Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 
 
 def create_app(
@@ -16,9 +18,10 @@ def create_app(
     description: ScenarioDescription | DescriptionProvider,
     *,
     allowed_origins: Sequence[str] = (),
+    lifespan: Lifespan | None = None,
 ) -> FastAPI:
     """Build a versioned telemetry API around a store and scenario description."""
-    app = FastAPI(title="sat-sim telemetry", version="1.0.0")
+    app = FastAPI(title="sat-sim telemetry", version="1.0.0", lifespan=lifespan)
     if allowed_origins:
         app.add_middleware(
             CORSMiddleware,

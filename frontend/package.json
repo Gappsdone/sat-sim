@@ -1,0 +1,22 @@
+{
+  "name": "sat-sim-cesium",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "cesium": "^1.133.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.10",
+    "vite-plugin-static-copy": "^3.1.2",
+    "vitest": "^3.2.4"
+  }
+}

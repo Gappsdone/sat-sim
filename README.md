@@ -205,6 +205,27 @@ Use `ISSTelemetryPublisher` to step the scenario and publish each resulting
 frame. A Cesium client can feed the timestamped ECI samples into a
 `SampledPositionProperty` and use the supplied quaternion for orientation.
 
+## Cesium frontend
+
+The separate `frontend` package renders the live ISS position and orbit trail
+on a Cesium globe. It transforms timestamped ECI samples into Cesium's fixed
+frame, applies the streamed body-to-ECI attitude, and shows eclipse, battery,
+generation, load, and all nine thermal channels in a responsive systems panel.
+
+Start the live simulation API and the frontend in separate terminals:
+
+```shell
+uv run sat-sim-telemetry
+cd frontend && npm install && npm run dev
+```
+
+Then open `http://127.0.0.1:5173`. Vite proxies both HTTP and WebSocket API
+traffic to `http://127.0.0.1:8000`, so no Cesium ion token is required. To use
+a custom development hostname, set a comma-separated allowlist before starting
+Vite, for example `VITE_ALLOWED_HOSTS=dashboard.example.test npm run dev`. The
+client reconnects automatically with bounded exponential backoff if the
+telemetry server restarts.
+
 ## PUS library (Python port)
 
 `pus_library` ports the Java library's PUS packet primitives into a Python
