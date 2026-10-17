@@ -212,6 +212,8 @@ on a Cesium globe. It transforms timestamped ECI samples into Cesium's fixed
 frame, applies the streamed body-to-ECI attitude, and shows eclipse, battery,
 generation, load, and all nine thermal channels in a responsive systems panel.
 
+![Live ISS scenario in the Cesium telemetry dashboard](docs/images/iss-telemetry-dashboard.png)
+
 Start the live simulation API and the frontend in separate terminals:
 
 ```shell
