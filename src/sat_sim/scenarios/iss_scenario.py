@@ -13,6 +13,7 @@ from sat_sim.orbital import (
     create_satellite_from_orbital,
     propagate_orbital,
 )
+from sat_sim.pcdu import PCDU, PCDUSystem, SolarPanel
 from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.scenario import Scenario
 from sat_sim.services.tcs import (
@@ -48,6 +49,9 @@ class ISSScenarioState:
     temperatures_celsius: tuple[float, ...]
     heater_outputs: tuple[float, ...]
     is_sunlit: bool | None
+    battery_charge_wh: float
+    generated_power_w: float
+    consumed_power_w: float
 
 
 def fetch_iss_tle(
@@ -104,6 +108,9 @@ class ISSScenario(Scenario):
         *,
         thermal_control_system: ThermalControlSystem | None = None,
         thermal_threshold_celsius: float = DEFAULT_THERMAL_THRESHOLD_CELSIUS,
+        battery_capacity_wh: float = 1_000.0,
+        initial_battery_charge_wh: float = 500.0,
+        solar_panel_peak_power_w: float = 100.0,
     ) -> None:
         super().__init__()
         self.timeout = timeout
@@ -125,6 +132,9 @@ class ISSScenario(Scenario):
         )
         self.tcs.bind_world(self.world)
         self.thermal_threshold_celsius = thermal_threshold_celsius
+        self.pcdu = PCDU(battery_capacity_wh, initial_battery_charge_wh)
+        self.solar_panel = SolarPanel(solar_panel_peak_power_w)
+        self.pcdu_system = PCDUSystem()
         self._last_thermal_timestamp: datetime | None = None
 
     def setup(self, timestamp: datetime) -> None:
@@ -141,6 +151,8 @@ class ISSScenario(Scenario):
             timestamp,
         )
         self.world.add(self.entity, SpacecraftAttitude())
+        self.world.add(self.entity, self.pcdu)
+        self.world.add(self.entity, self.solar_panel)
         self.tcs.bind_spacecraft_entity(self.entity)
         self._last_thermal_timestamp = timestamp
 
@@ -167,6 +179,7 @@ class ISSScenario(Scenario):
             delta_time = (timestamp - previous_timestamp).total_seconds()
             if delta_time > 0:
                 self.tcs.advance(delta_time, timestamp)
+                self.pcdu_system.update(self.world, self.entity, delta_time, timestamp)
         self._last_thermal_timestamp = timestamp
 
         state = ISSScenarioState(
@@ -186,6 +199,9 @@ class ISSScenario(Scenario):
                 for _entity, command in self.world.query(HeaterCommand)
             ),
             is_sunlit=self.tcs.is_sunlit,
+            battery_charge_wh=self.pcdu.charge_wh,
+            generated_power_w=self.pcdu.generated_power_w,
+            consumed_power_w=self.pcdu.consumed_power_w,
         )
         self.print_state(state)
         return state
@@ -203,6 +219,11 @@ class ISSScenario(Scenario):
             else "eclipse"
         )
         print(f"\tThermal control ({illumination}):")
+        print(
+            f"\tPCDU: {state.battery_charge_wh:.2f}/{self.pcdu.capacity_wh:.2f} Wh; "
+            f"generation {state.generated_power_w:.2f} W; "
+            f"load {state.consumed_power_w:.2f} W"
+        )
         for _entity, sensor, heater, command in self.world.query(
             TemperatureSensor, Heater, HeaterCommand
         ):

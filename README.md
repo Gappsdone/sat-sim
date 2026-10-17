@@ -160,6 +160,51 @@ temperature is in degrees Celsius, and time is in seconds. This logarithmic
 attenuation is a qualitative grid interaction model, not a physical heat
 diffusion solver. `grid_spacing_m` and the channel count (1–9) are configurable.
 
+## Power control and distribution
+
+The ISS entity has `PCDU` and `SolarPanel` components. `PCDUSystem` converts
+panel incidence into generated power with
+`peak_power_w * max(0, panel_normal_ECI · sun_direction_ECI)` and produces no
+power while the spacecraft is in Earth's eclipse. Net watt-seconds are
+converted to watt-hours and applied to the battery, clamped between empty and
+its configured capacity.
+
+Spacecraft loads expose a `PowerConsumer` component. Each TCS heater updates its
+requested power from its rated wattage and PID output before the PCDU totals all
+loads. The ISS scenario reports battery charge, generated power, and consumed
+power on every step. The defaults are a 1,000 Wh battery initially charged to
+500 Wh and a 100 W panel mounted on body -Z; these values are configurable in
+the `ISSScenario` constructor.
+
+## Frontend telemetry API
+
+The separate `sat_sim_telemetry` package adapts simulation state for browser
+frontends without adding transport concerns to `sat_sim`. It provides immutable,
+versioned Pydantic wire models and a FastAPI application with:
+
+- `GET /api/v1/scenario` for static units, geometry, and capacities;
+- `GET /api/v1/state` for the latest complete state snapshot; and
+- `WS /api/v1/telemetry` for timestamped state frames.
+
+Frames contain ECI position and velocity, a normalized body-to-ECI quaternion,
+Sun/eclipse state, PCDU telemetry, and all thermal channels. Field names use
+lower camel case on the wire. The broadcaster keeps only a small bounded queue
+per client, so a slow renderer receives recent simulation state instead of
+creating backpressure.
+
+```python
+from sat_sim.scenarios.iss_scenario import ISSScenario
+from sat_sim_telemetry import TelemetryStore, create_app, describe_iss_scenario
+
+scenario = ISSScenario()
+store = TelemetryStore()
+app = create_app(store, lambda: describe_iss_scenario(scenario))
+```
+
+Use `ISSTelemetryPublisher` to step the scenario and publish each resulting
+frame. A Cesium client can feed the timestamped ECI samples into a
+`SampledPositionProperty` and use the supplied quaternion for orientation.
+
 ## PUS library (Python port)
 
 `pus_library` ports the Java library's PUS packet primitives into a Python

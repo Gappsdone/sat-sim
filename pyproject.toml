@@ -9,7 +9,9 @@ description = "A starter Python application"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115",
     "pyorbital>=1.13.0",
+    "uvicorn>=0.34",
 ]
 
 [project.scripts]
@@ -17,6 +19,7 @@ sat-sim = "sat_sim.app:main"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28",
     "mypy>=1.14",
     "pytest>=8.3",
     "pytest-cov>=6.0",
@@ -24,11 +27,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sat_sim", "src/pus_library"]
+packages = ["src/sat_sim", "src/sat_sim_telemetry", "src/pus_library"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=sat_sim --cov-report=term-missing"
+addopts = "--cov=sat_sim --cov=sat_sim_telemetry --cov-report=term-missing"
 
 [tool.coverage.report]
 fail_under = 90

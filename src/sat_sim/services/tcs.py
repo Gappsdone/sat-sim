@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from math import cos, hypot, isfinite, log1p, radians, sin, sqrt
+from datetime import datetime
+from math import hypot, isfinite, log1p, sqrt
 
 from sat_sim.attitude import AttitudeSystem, SpacecraftAttitude
 from sat_sim.ecs import Entity, World
+from sat_sim.pcdu import PowerConsumer
 from sat_sim.position import ECIPosition
+from sat_sim.solar import EARTH_RADIUS_METERS as EARTH_RADIUS_METERS
+from sat_sim.solar import satellite_is_sunlit as satellite_is_sunlit
+from sat_sim.solar import solar_direction_eci as solar_direction_eci
 
 DEFAULT_SENSOR_COUNT = 9
 GRID_WIDTH = 3
 DEFAULT_GRID_SPACING_METERS = 1.0
-EARTH_RADIUS_METERS = 6_371_000.0
 DEFAULT_HEATER_THRESHOLD_CELSIUS = 22.0
 DEFAULT_SUNLIT_WARMING_RATE_CELSIUS_PER_SECOND = 0.02
 DEFAULT_ECLIPSE_COOLING_RATE_CELSIUS_PER_SECOND = 0.01
@@ -485,6 +488,7 @@ class ThermalControlSystem:
             self.world.add(entity, heater)
             self.world.add(entity, heater.command)
             self.world.add(entity, heater.pid.state)
+            self.world.add(entity, PowerConsumer())
             self.thermal_entities.append(entity)
         self.illumination_system = IlluminationSystem()
         self.attitude_system = AttitudeSystem()
@@ -532,6 +536,7 @@ class ThermalControlSystem:
             world.add(entity, heater)
             world.add(entity, heater.command)
             world.add(entity, heater.pid.state)
+            world.add(entity, PowerConsumer())
             self.thermal_entities.append(entity)
         self.spacecraft_entity = None
 
@@ -673,6 +678,10 @@ class ThermalControlSystem:
         self.heater_control_system.update(
             self.world, delta_time, self.heater_threshold_celsius
         )
+        for _entity, heater, command, consumer in self.world.query(
+            Heater, HeaterCommand, PowerConsumer
+        ):
+            consumer.requested_power_w = heater.power * command.output_fraction
         self.thermal_dynamics_system.update(
             self.world,
             delta_time,
@@ -681,65 +690,6 @@ class ThermalControlSystem:
             attitude,
             illumination.sun_direction_eci,
         )
-
-
-def solar_direction_eci(timestamp: datetime) -> tuple[float, float, float]:
-    """Approximate the Sun's unit direction in the ECI frame for a UTC time.
-
-    This low-precision mean-orbit approximation is adequate for a simple
-    umbra/shadow decision, not precision orbit determination.
-    """
-    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-        raise ValueError("timestamp must be timezone-aware")
-    utc_time = timestamp.astimezone(UTC)
-    days_since_j2000 = (
-        utc_time - datetime(2000, 1, 1, 12, tzinfo=UTC)
-    ).total_seconds() / 86_400.0
-    mean_longitude = radians((280.460 + 0.9856474 * days_since_j2000) % 360.0)
-    mean_anomaly = radians((357.528 + 0.9856003 * days_since_j2000) % 360.0)
-    ecliptic_longitude = (
-        mean_longitude
-        + radians(1.915) * sin(mean_anomaly)
-        + radians(0.020) * sin(2.0 * mean_anomaly)
-    )
-    obliquity = radians(23.439 - 0.0000004 * days_since_j2000)
-    return (
-        cos(ecliptic_longitude),
-        cos(obliquity) * sin(ecliptic_longitude),
-        sin(obliquity) * sin(ecliptic_longitude),
-    )
-
-
-def satellite_is_sunlit(
-    satellite_position_m: tuple[float, float, float], timestamp: datetime
-) -> bool:
-    """Return false only when Earth blocks the Sun (cylindrical umbra model).
-
-    Earth is treated as a sphere of ``EARTH_RADIUS_METERS``. Atmospheric
-    refraction, penumbra, other bodies, and attitude/panel orientation are
-    intentionally ignored.
-    """
-    if len(satellite_position_m) != 3 or not all(
-        isfinite(coordinate) for coordinate in satellite_position_m
-    ):
-        raise ValueError("satellite_position_m must contain three finite coordinates")
-    sun_direction = solar_direction_eci(timestamp)
-    along_sun = sum(
-        coordinate * direction
-        for coordinate, direction in zip(
-            satellite_position_m, sun_direction, strict=True
-        )
-    )
-    if along_sun >= 0.0:
-        return True
-    distance_from_shadow_axis = sqrt(
-        max(
-            0.0,
-            sum(coordinate * coordinate for coordinate in satellite_position_m)
-            - along_sun * along_sun,
-        )
-    )
-    return distance_from_shadow_axis >= EARTH_RADIUS_METERS
 
 
 def _require_finite(name: str, value: float) -> None:
