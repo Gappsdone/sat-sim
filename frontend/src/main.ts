@@ -1,9 +1,11 @@
 import {
+  ArcGisMapServerImageryProvider,
   Cartesian3,
   ClockRange,
   Color,
   Entity,
   HeadingPitchRange,
+  ImageryLayer,
   Ion,
   JulianDate,
   Matrix3,
@@ -34,6 +36,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <div id="cesium" aria-label="3D view of the International Space Station"></div>
       <div class="brand"><span class="brand-mark">◫</span><span>SAT-SIM</span></div>
       <div class="connection"><span id="connection-dot"></span><span id="connection-text">Connecting</span></div>
+      <div class="imagery-attribution">Imagery: <a href="https://www.esri.com/" target="_blank" rel="noopener noreferrer">Esri</a>, Vantor, Earthstar Geographics, and the GIS User Community</div>
     </section>
     <aside class="telemetry-panel">
       <header><p class="eyebrow">LIVE SCENARIO</p><h1>International<br/>Space Station</h1><p id="timestamp">Waiting for telemetry</p></header>
@@ -62,7 +65,12 @@ const viewer = new Viewer("cesium", {
   sceneModePicker: false,
   selectionIndicator: false,
   timeline: false,
-  baseLayer: false,
+  baseLayer: ImageryLayer.fromProviderAsync(
+    ArcGisMapServerImageryProvider.fromUrl(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+      { enablePickFeatures: false },
+    ),
+  ),
   requestRenderMode: true,
 });
 viewer.scene.backgroundColor = Color.fromCssColorString("#020609");

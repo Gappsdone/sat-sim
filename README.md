@@ -208,8 +208,9 @@ frame. A Cesium client can feed the timestamped ECI samples into a
 ## Cesium frontend
 
 The separate `frontend` package renders the live ISS position and orbit trail
-on a Cesium globe. It transforms timestamped ECI samples into Cesium's fixed
-frame, applies the streamed body-to-ECI attitude, and shows eclipse, battery,
+over Esri World Imagery on a Cesium globe, with source attribution displayed on
+the map. It transforms timestamped ECI samples into Cesium's fixed frame,
+applies the streamed body-to-ECI attitude, and shows eclipse, battery,
 generation, load, and all nine thermal channels in a responsive systems panel.
 
 ![Live ISS scenario in the Cesium telemetry dashboard](docs/images/iss-telemetry-dashboard.png)
@@ -222,7 +223,8 @@ cd frontend && npm install && npm run dev
 ```
 
 Then open `http://127.0.0.1:5173`. Vite proxies both HTTP and WebSocket API
-traffic to `http://127.0.0.1:8000`, so no Cesium ion token is required. To use
+traffic to `http://127.0.0.1:8000`, so no Cesium ion token is required. The Esri
+imagery service requires network access from the browser. To use
 a custom development hostname, set a comma-separated allowlist before starting
 Vite, for example `VITE_ALLOWED_HOSTS=dashboard.example.test npm run dev`. The
 client reconnects automatically with bounded exponential backoff if the
