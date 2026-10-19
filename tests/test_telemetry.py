@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from pus_library import ByteOrder, HousekeepingReport, SourcePacket
 from sat_sim.scenarios.iss_scenario import ISSScenario
 from sat_sim.services.tcs import solar_direction_eci
 from sat_sim_telemetry import (
@@ -22,6 +23,14 @@ class FakeOrbital:
         del normalize
         sun = solar_direction_eci(utc_time)
         return [6_700.0 * value for value in sun], [0.0, 7.5, 0.0]
+
+
+class FakePUSPublisher:
+    def __init__(self) -> None:
+        self.packets: list[SourcePacket] = []
+
+    def publish(self, packet: SourcePacket) -> None:
+        self.packets.append(packet)
 
 
 def make_scenario(monkeypatch: pytest.MonkeyPatch) -> tuple[ISSScenario, datetime]:
@@ -78,7 +87,8 @@ def test_publisher_steps_scenario_and_increments_sequence(
 ) -> None:
     scenario, timestamp = make_scenario(monkeypatch)
     store = TelemetryStore()
-    publisher = ISSTelemetryPublisher(scenario, store)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, store, pus)
 
     _state, first = publisher.step(timestamp + timedelta(seconds=1))
     _state, second = publisher.step(timestamp + timedelta(seconds=2))
@@ -87,6 +97,12 @@ def test_publisher_steps_scenario_and_increments_sequence(
     assert first.sequence == 0
     assert second.sequence == 1
     assert store.current is second
+    assert len(pus.packets) == 2
+    packet = SourcePacket(pus.packets[-1].get_bytes(), ByteOrder.BIG_ENDIAN)
+    report = HousekeepingReport.from_service_data(packet.packet_data_field.data)
+    assert report.sequence == 1
+    publisher.consume(packet)
+    assert publisher.last_consumed_packet is packet
 
 
 def test_api_serves_metadata_latest_snapshot_and_websocket(

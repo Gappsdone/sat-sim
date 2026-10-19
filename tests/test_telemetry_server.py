@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from time import sleep
 from typing import Any, ClassVar
@@ -6,6 +7,7 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
+from pus_library import SourcePacket
 from sat_sim_telemetry import server
 from sat_sim_telemetry.models import ScenarioDescription
 from sat_sim_telemetry.store import TelemetryStore
@@ -14,9 +16,10 @@ from sat_sim_telemetry.store import TelemetryStore
 class FakePublisher:
     instances: ClassVar[list["FakePublisher"]] = []
 
-    def __init__(self, scenario: object, store: TelemetryStore) -> None:
+    def __init__(self, scenario: object, store: TelemetryStore, pus: object) -> None:
         self.scenario = scenario
         self.store = store
+        self.pus = pus
         self.setup_timestamp: datetime | None = None
         self.steps = 0
         self.instances.append(self)
@@ -28,6 +31,28 @@ class FakePublisher:
         del timestamp
         self.steps += 1
         return None, None
+
+    def consume(self, packet: SourcePacket) -> None:
+        del packet
+
+
+class FakePUSChannel:
+    def __init__(self) -> None:
+        self.opened = False
+        self.closed = False
+
+    def open(self) -> None:
+        self.opened = True
+
+    def publish(self, packet: SourcePacket) -> None:
+        del packet
+
+    async def consume(self) -> tuple[SourcePacket, tuple[str, int]]:
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def description() -> ScenarioDescription:
@@ -51,7 +76,8 @@ def test_live_app_runs_publisher_during_lifespan(
         server, "describe_iss_scenario", lambda _scenario: description()
     )
 
-    app = server.create_live_app(interval=0.001)
+    channel = FakePUSChannel()
+    app = server.create_live_app(interval=0.001, pus_channel=channel)  # type: ignore[arg-type]
     with TestClient(app) as client:
         response = client.get("/api/v1/scenario")
         sleep(0.01)
@@ -60,6 +86,8 @@ def test_live_app_runs_publisher_during_lifespan(
     publisher = FakePublisher.instances[0]
     assert publisher.setup_timestamp is not None
     assert publisher.steps >= 2
+    assert channel.opened
+    assert channel.closed
 
 
 def test_live_app_rejects_nonpositive_interval() -> None:

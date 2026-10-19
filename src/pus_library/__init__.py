@@ -20,6 +20,14 @@ from .headers import (
     TCDataFieldHeader,
     TMDataFieldHeader,
 )
+from .housekeeping import (
+    HOUSEKEEPING_REPORT_SUBTYPE,
+    HOUSEKEEPING_SERVICE_TYPE,
+    HousekeepingParameter,
+    HousekeepingParameterType,
+    HousekeepingReport,
+    HousekeepingValue,
+)
 from .packet import PacketDataField, PacketErrorControl, SourcePacket
 from .service import ServiceData, service_data
 from .time import CUCSatelliteTime, TimeSyncQuality
@@ -29,6 +37,8 @@ DataFieldHeaderTM = TMDataFieldHeader
 
 __all__ = [
     "DEFAULT_BYTE_ORDER",
+    "HOUSEKEEPING_REPORT_SUBTYPE",
+    "HOUSEKEEPING_SERVICE_TYPE",
     "ByteOrder",
     "CUCSatelliteTime",
     "DataFieldHeader",
@@ -36,6 +46,10 @@ __all__ = [
     "DataFieldHeaderTM",
     "EventID",
     "FaultID",
+    "HousekeepingParameter",
+    "HousekeepingParameterType",
+    "HousekeepingReport",
+    "HousekeepingValue",
     "PacketCategory",
     "PacketDataField",
     "PacketErrorControl",

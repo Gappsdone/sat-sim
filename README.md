@@ -192,6 +192,35 @@ lower camel case on the wire. The broadcaster keeps only a small bounded queue
 per client, so a slow renderer receives recent simulation state instead of
 creating backpressure.
 
+The live server also produces a CRC-protected PUS Service 3 periodic
+housekeeping packet (`TM(3,25)`) for every simulation step. Complete PUS packets
+are published and consumed exclusively as one packet per UDP datagram; they are
+not exposed through the HTTP telemetry API. Its application payload uses the
+documented sat-sim profile implemented by `HousekeepingReport`: an 8-bit
+structure ID and 32-bit parameter IDs, matching the ID widths used by
+`it_pusutilities_framework`, plus a 32-bit report sequence and typed parameter
+samples. The default ISS structure reports illumination, battery charge,
+generated and consumed power, and every thermal temperature and heater state.
+TCS parameter IDs and source PRID come from `plugin_tcs`'s `TCS.java` on its
+`dev` branch: PRID 5, 27 thermistor IDs grouped as three sensors for each of
+nine heaters, and nine heater-indicator IDs. Each simulated thermal channel
+feeds the plugin's three thermistors for that heater. Heater output is published
+as the integer activity indicator expected by the plugin. The plugin defines no
+IDs for illumination or electrical-power values, so those retain sat-sim's
+local IDs 1 through 4.
+Service 3 definition-management telecommands are not implemented yet.
+
+The bidirectional UDP socket is configured through environment variables:
+
+- `SAT_SIM_PUS_BIND_HOST` and `SAT_SIM_PUS_BIND_PORT` select the local receive
+  address (defaults: `127.0.0.1:10025`);
+- `SAT_SIM_PUS_DESTINATION_HOST` and `SAT_SIM_PUS_DESTINATION_PORT` select the
+  publish destination (defaults: `127.0.0.1:10015`).
+
+Inbound datagrams are parsed as complete PUS source packets and discarded when
+their framing or CRC is invalid. Valid packets enter the service-dispatch path;
+Service 3 management telecommands are the next planned consumer.
+
 ```python
 from sat_sim.scenarios.iss_scenario import ISSScenario
 from sat_sim_telemetry import TelemetryStore, create_app, describe_iss_scenario
