@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from math import acos, ceil, isfinite, pi, sqrt
 from random import Random
 from typing import Protocol
@@ -19,6 +20,7 @@ from sat_sim.attitude import (
     quaternion_from_axes,
     quaternion_multiply,
     quaternion_to_axes,
+    unit_vector,
 )
 from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition, ECIVelocity
@@ -157,6 +159,59 @@ class AttitudeEstimatorConfiguration:
 
     def __post_init__(self) -> None:
         _require_nonnegative("correction_gain_rad_s", self.correction_gain_rad_s)
+
+
+class ADCSMode(StrEnum):
+    NADIR_POINTING = "NADIR_POINTING"
+    INERTIAL_HOLD = "INERTIAL_HOLD"
+    SUN_POINTING = "SUN_POINTING"
+    SAFE_MODE = "SAFE_MODE"
+    DETUMBLE = "DETUMBLE"
+
+
+@dataclass
+class ADCSModeState:
+    """Requested/current control mode and inertial-hold target."""
+
+    requested: ADCSMode = ADCSMode.NADIR_POINTING
+    current: ADCSMode = ADCSMode.NADIR_POINTING
+    inertial_hold_quaternion_xyzw: Quaternion = (0.0, 0.0, 0.0, 1.0)
+
+
+@dataclass
+class ADCSFaultState:
+    """Latched sensor/actuator fault summary and automatic-mode reason."""
+
+    sensor_fault: bool = False
+    wheel_fault: bool = False
+    safe_mode_reason: str | None = None
+
+
+@dataclass
+class MagnetorquerAssembly:
+    """Three-axis magnetic dipole actuator with per-axis saturation."""
+
+    max_dipole_a_m2: float = 20.0
+    commanded_dipole_a_m2: Vector3 = (0.0, 0.0, 0.0)
+    applied_torque_nm: Vector3 = (0.0, 0.0, 0.0)
+
+    def __post_init__(self) -> None:
+        _require_positive("max_dipole_a_m2", self.max_dipole_a_m2)
+
+
+@dataclass
+class MomentumManagementConfiguration:
+    """Wheel unloading and magnetic detumble gains and thresholds."""
+
+    unload_threshold_fraction: float = 0.7
+    unload_gain_per_s: float = 0.05
+    detumble_gain_nms: float = 2.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.unload_threshold_fraction <= 1.0:
+            raise ValueError("unload_threshold_fraction must be between zero and one")
+        _require_nonnegative("unload_gain_per_s", self.unload_gain_per_s)
+        _require_nonnegative("detumble_gain_nms", self.detumble_gain_nms)
 
 
 class DisturbanceTorqueModel(Protocol):
@@ -367,7 +422,7 @@ class ADCSSystem:
 
     def initialize(self, world: World, entity: Entity) -> None:
         """Initialize truth and reference attitude to the current nadir frame."""
-        reference = self._reference(world, entity)
+        reference = self._reference(world, entity, None)
         stored_reference = world.get(entity, AttitudeReference)
         stored_reference.quaternion_xyzw = reference.quaternion_xyzw
         stored_reference.angular_velocity_eci_rad_s = (
@@ -383,6 +438,9 @@ class ADCSSystem:
             estimate = world.get(entity, AttitudeEstimate)
             estimate.quaternion_xyzw = state.quaternion_xyzw
             estimate.angular_velocity_body_rad_s = state.angular_velocity_body_rad_s
+        if world.has(entity, ADCSModeState):
+            mode = world.get(entity, ADCSModeState)
+            mode.inertial_hold_quaternion_xyzw = state.quaternion_xyzw
 
     def update(
         self,
@@ -393,7 +451,8 @@ class ADCSSystem:
     ) -> ADCSStatus:
         """Advance controller, wheels, and rigid-body truth state."""
         _require_positive("delta_time", delta_time)
-        reference = self._reference(world, entity)
+        self._update_mode_and_faults(world, entity)
+        reference = self._reference(world, entity, timestamp)
         stored_reference = world.get(entity, AttitudeReference)
         stored_reference.quaternion_xyzw = reference.quaternion_xyzw
         stored_reference.angular_velocity_eci_rad_s = (
@@ -409,7 +468,9 @@ class ADCSSystem:
         return status
 
     @staticmethod
-    def _reference(world: World, entity: Entity) -> AttitudeReference:
+    def _reference(
+        world: World, entity: Entity, timestamp: datetime | None
+    ) -> AttitudeReference:
         position = world.get(entity, ECIPosition)
         velocity = world.get(entity, ECIVelocity)
         position_vector = (position.x, position.y, position.z)
@@ -422,6 +483,31 @@ class ADCSSystem:
             orbital_momentum[1] / radius_squared,
             orbital_momentum[2] / radius_squared,
         )
+        if world.has(entity, ADCSModeState):
+            mode = world.get(entity, ADCSModeState)
+            if mode.current in (ADCSMode.INERTIAL_HOLD, ADCSMode.DETUMBLE):
+                return AttitudeReference(
+                    mode.inertial_hold_quaternion_xyzw, (0.0, 0.0, 0.0)
+                )
+            if mode.current in (ADCSMode.SUN_POINTING, ADCSMode.SAFE_MODE):
+                if timestamp is None:
+                    return AttitudeReference(
+                        mode.inertial_hold_quaternion_xyzw, (0.0, 0.0, 0.0)
+                    )
+                z_axis = solar_direction_eci(timestamp)
+                along_z = dot(velocity_vector, z_axis)
+                projected_velocity: Vector3 = tuple(
+                    velocity_vector[index] - along_z * z_axis[index]
+                    for index in range(3)
+                )  # type: ignore[assignment]
+                x_axis = unit_vector(
+                    "Sun-pointing projected velocity", projected_velocity
+                )
+                y_axis = cross(z_axis, x_axis)
+                return AttitudeReference(
+                    quaternion_from_axes(x_axis, y_axis, z_axis),
+                    (0.0, 0.0, 0.0),
+                )
         return AttitudeReference(
             quaternion_from_axes(*axes),
             orbital_rate,
@@ -453,6 +539,11 @@ class ADCSSystem:
             if estimate is not None
             else state.angular_velocity_body_rad_s
         )
+        mode = (
+            world.get(entity, ADCSModeState).current
+            if world.has(entity, ADCSModeState)
+            else ADCSMode.NADIR_POINTING
+        )
         error = quaternion_multiply(
             quaternion_conjugate(control_quaternion), reference.quaternion_xyzw
         )
@@ -467,6 +558,45 @@ class ADCSSystem:
             * (desired_rate[index] - control_rate[index])
             for index in range(3)
         )
+        if mode == ADCSMode.DETUMBLE:
+            commanded = (0.0, 0.0, 0.0)
+        magnetic_torque = (0.0, 0.0, 0.0)
+        if world.has(entity, MagnetorquerAssembly) and world.has(
+            entity, MomentumManagementConfiguration
+        ):
+            magnetorquer = world.get(entity, MagnetorquerAssembly)
+            management = world.get(entity, MomentumManagementConfiguration)
+            field_body = _eci_to_body(
+                earth_magnetic_field_eci(position), state.quaternion_xyzw
+            )
+            desired_magnetic_torque: Vector3 = (0.0, 0.0, 0.0)
+            if mode == ADCSMode.DETUMBLE:
+                desired_magnetic_torque = tuple(
+                    -management.detumble_gain_nms * value for value in control_rate
+                )  # type: ignore[assignment]
+            else:
+                unload = tuple(
+                    max(
+                        -wheels.max_torque_nm,
+                        min(
+                            wheels.max_torque_nm,
+                            management.unload_gain_per_s
+                            * wheels.rotor_inertia_kg_m2
+                            * speed,
+                        ),
+                    )
+                    if abs(speed) / wheels.max_speed_rad_s
+                    >= management.unload_threshold_fraction
+                    else 0.0
+                    for speed in wheels.speeds_rad_s
+                )
+                commanded = tuple(
+                    commanded[index] + unload[index] for index in range(3)
+                )
+                desired_magnetic_torque = tuple(-value for value in unload)  # type: ignore[assignment]
+            magnetic_torque = apply_magnetorquer(
+                magnetorquer, field_body, desired_magnetic_torque
+            )
         applied, saturated = apply_reaction_wheels(wheels, commanded, delta_time)
         model_torques = tuple(
             model.torque_body_nm(body, state, position, velocity, timestamp)
@@ -482,7 +612,12 @@ class ADCSSystem:
         )
         gyroscopic = cross(state.angular_velocity_body_rad_s, momentum)
         acceleration = tuple(
-            (applied[index] + disturbance[index] - gyroscopic[index])
+            (
+                applied[index]
+                + magnetic_torque[index]
+                + disturbance[index]
+                - gyroscopic[index]
+            )
             / body.inertia_kg_m2[index]
             for index in range(3)
         )
@@ -503,6 +638,55 @@ class ADCSSystem:
         status.applied_torque_nm = applied
         status.disturbance_torque_nm = disturbance  # type: ignore[assignment]
         status.wheel_saturated = saturated
+
+    @staticmethod
+    def _update_mode_and_faults(world: World, entity: Entity) -> None:
+        if not world.has(entity, ADCSModeState):
+            return
+        mode = world.get(entity, ADCSModeState)
+        state = world.get(entity, AttitudeState)
+        faults = (
+            world.get(entity, ADCSFaultState)
+            if world.has(entity, ADCSFaultState)
+            else None
+        )
+        sensors = (
+            world.get(entity, ADCSSensorConfiguration)
+            if world.has(entity, ADCSSensorConfiguration)
+            else None
+        )
+        sensor_fault = sensors is not None and (
+            not sensors.gyro_valid
+            or not any(
+                (
+                    sensors.sun_sensor_valid,
+                    sensors.magnetometer_valid,
+                    sensors.earth_sensor_valid,
+                )
+            )
+        )
+        wheels = world.get(entity, ReactionWheelAssembly)
+        wheel_fault = any(
+            abs(speed) > wheels.max_speed_rad_s for speed in wheels.speeds_rad_s
+        )
+        if faults is not None:
+            faults.sensor_fault = sensor_fault
+            faults.wheel_fault = wheel_fault
+        requested = (
+            ADCSMode.SAFE_MODE if sensor_fault or wheel_fault else mode.requested
+        )
+        if requested != mode.current:
+            if requested in (ADCSMode.INERTIAL_HOLD, ADCSMode.DETUMBLE):
+                mode.inertial_hold_quaternion_xyzw = state.quaternion_xyzw
+            mode.current = requested
+        if faults is not None:
+            faults.safe_mode_reason = (
+                "sensor fault"
+                if sensor_fault
+                else "reaction-wheel fault"
+                if wheel_fault
+                else None
+            )
 
     def _update_estimator(
         self,
@@ -632,6 +816,30 @@ class ADCSSystem:
             )  # type: ignore[arg-type]
         )
         return estimate
+
+
+def apply_magnetorquer(
+    magnetorquer: MagnetorquerAssembly,
+    magnetic_field_body_t: Vector3,
+    desired_torque_nm: Vector3,
+) -> Vector3:
+    """Command the limited dipole that best realizes torque perpendicular to B."""
+    field_squared = dot(magnetic_field_body_t, magnetic_field_body_t)
+    if field_squared == 0.0:
+        magnetorquer.commanded_dipole_a_m2 = (0.0, 0.0, 0.0)
+        magnetorquer.applied_torque_nm = (0.0, 0.0, 0.0)
+        return magnetorquer.applied_torque_nm
+    commanded = tuple(
+        value / field_squared
+        for value in cross(magnetic_field_body_t, desired_torque_nm)
+    )
+    magnetorquer.commanded_dipole_a_m2 = commanded  # type: ignore[assignment]
+    limited: Vector3 = tuple(
+        max(-magnetorquer.max_dipole_a_m2, min(magnetorquer.max_dipole_a_m2, value))
+        for value in commanded
+    )  # type: ignore[assignment]
+    magnetorquer.applied_torque_nm = cross(limited, magnetic_field_body_t)
+    return magnetorquer.applied_torque_nm
 
 
 def apply_reaction_wheels(

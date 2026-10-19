@@ -46,6 +46,10 @@ class ADCSTelemetry(WireModel):
     estimated_quaternion_xyzw: tuple[float, float, float, float]
     measured_angular_velocity_body_rad_s: tuple[float, float, float]
     sensor_valid: dict[str, bool]
+    mode: str
+    fault_reason: str | None
+    magnetorquer_dipole_a_m2: tuple[float, float, float]
+    magnetorquer_torque_nm: tuple[float, float, float]
 
 
 class IlluminationTelemetry(WireModel):

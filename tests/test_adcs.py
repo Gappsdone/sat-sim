@@ -5,6 +5,9 @@ from math import cos, radians, sin, sqrt
 import pytest
 
 from sat_sim.adcs import (
+    ADCSFaultState,
+    ADCSMode,
+    ADCSModeState,
     ADCSSensorConfiguration,
     ADCSSensorMeasurements,
     ADCSStatus,
@@ -16,14 +19,18 @@ from sat_sim.adcs import (
     AttitudeReference,
     AttitudeState,
     GravityGradientTorque,
+    MagnetorquerAssembly,
+    MomentumManagementConfiguration,
     ReactionWheelAssembly,
     ResidualMagneticDipoleTorque,
     RigidBody,
     SolarRadiationPressureTorque,
+    apply_magnetorquer,
     apply_reaction_wheels,
 )
 from sat_sim.attitude import (
     SpacecraftAttitude,
+    dot,
     quaternion_from_axes,
     quaternion_multiply,
     quaternion_to_axes,
@@ -55,6 +62,10 @@ def make_adcs_world() -> tuple[World, int, ADCSSystem]:
     world.add(entity, ADCSSensorMeasurements())
     world.add(entity, AttitudeEstimate())
     world.add(entity, AttitudeEstimatorConfiguration())
+    world.add(entity, ADCSModeState())
+    world.add(entity, ADCSFaultState())
+    world.add(entity, MagnetorquerAssembly())
+    world.add(entity, MomentumManagementConfiguration())
     world.add(entity, ReactionWheelAssembly(max_torque_nm=1.0))
     world.add(entity, ADCSStatus())
     system = ADCSSystem(max_substep_s=0.02)
@@ -312,6 +323,76 @@ def test_invalid_sensors_are_excluded_from_estimator() -> None:
     assert not measurements.sun_sensor_valid
     assert not measurements.magnetometer_valid
     assert not measurements.earth_sensor_valid
+
+
+def test_sensor_fault_enters_safe_mode() -> None:
+    world, entity, system = make_adcs_world()
+    world.get(entity, ADCSSensorConfiguration).gyro_valid = False
+
+    system.update(
+        world,
+        entity,
+        0.1,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    assert world.get(entity, ADCSModeState).current == ADCSMode.SAFE_MODE
+    assert world.get(entity, ADCSFaultState).safe_mode_reason == "sensor fault"
+
+
+def test_inertial_hold_captures_current_attitude() -> None:
+    world, entity, system = make_adcs_world()
+    mode = world.get(entity, ADCSModeState)
+    state = world.get(entity, AttitudeState)
+    expected = state.quaternion_xyzw
+    mode.requested = ADCSMode.INERTIAL_HOLD
+
+    system.update(world, entity, 0.1)
+
+    assert mode.current == ADCSMode.INERTIAL_HOLD
+    assert mode.inertial_hold_quaternion_xyzw == pytest.approx(expected)
+
+
+def test_magnetorquer_projects_and_limits_requested_torque() -> None:
+    magnetorquer = MagnetorquerAssembly(max_dipole_a_m2=2.0)
+
+    torque = apply_magnetorquer(
+        magnetorquer,
+        (0.0, 0.0, 1.0),
+        (4.0, 0.0, 3.0),
+    )
+
+    assert magnetorquer.commanded_dipole_a_m2 == pytest.approx((0.0, 4.0, 0.0))
+    assert torque == pytest.approx((2.0, 0.0, 0.0))
+
+
+def test_detumble_commands_rate_opposing_magnetic_torque() -> None:
+    world, entity, system = make_adcs_world()
+    mode = world.get(entity, ADCSModeState)
+    mode.requested = ADCSMode.DETUMBLE
+    estimate = world.get(entity, AttitudeEstimate)
+    estimate.angular_velocity_body_rad_s = (0.1, 0.0, 0.0)
+    state = world.get(entity, AttitudeState)
+    state.angular_velocity_body_rad_s = estimate.angular_velocity_body_rad_s
+
+    system.update(world, entity, 0.1)
+
+    torque = world.get(entity, MagnetorquerAssembly).applied_torque_nm
+    assert dot(torque, (0.1, 0.0, 0.0)) < 0.0
+
+
+def test_momentum_unloading_reduces_high_wheel_speed() -> None:
+    world, entity, system = make_adcs_world()
+    wheels = world.get(entity, ReactionWheelAssembly)
+    wheels.speeds_rad_s = (500.0, 0.0, 0.0)
+    initial_speed = wheels.speeds_rad_s[0]
+    controller = world.get(entity, AttitudeController)
+    controller.proportional_gain_nm = 0.0
+    controller.derivative_gain_nms = 0.0
+
+    system.update(world, entity, 0.1)
+
+    assert abs(wheels.speeds_rad_s[0]) < abs(initial_speed)
 
 
 @pytest.mark.parametrize(

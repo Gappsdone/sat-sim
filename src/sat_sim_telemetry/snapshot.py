@@ -1,11 +1,14 @@
 """Create immutable telemetry snapshots from an ISS ECS scenario."""
 
 from sat_sim.adcs import (
+    ADCSFaultState,
+    ADCSModeState,
     ADCSSensorMeasurements,
     ADCSStatus,
     AttitudeEstimate,
     AttitudeReference,
     AttitudeState,
+    MagnetorquerAssembly,
     ReactionWheelAssembly,
 )
 from sat_sim.scenarios.iss_scenario import ISSScenario, ISSScenarioState
@@ -36,6 +39,9 @@ def snapshot_iss(
     wheels = scenario.world.get(scenario.entity, ReactionWheelAssembly)
     estimate = scenario.world.get(scenario.entity, AttitudeEstimate)
     sensors = scenario.world.get(scenario.entity, ADCSSensorMeasurements)
+    mode = scenario.world.get(scenario.entity, ADCSModeState)
+    faults = scenario.world.get(scenario.entity, ADCSFaultState)
+    magnetorquer = scenario.world.get(scenario.entity, MagnetorquerAssembly)
     illumination = scenario.tcs.illumination_state
     channels = tuple(
         ThermalChannelTelemetry(
@@ -83,6 +89,10 @@ def snapshot_iss(
                 "magnetometer": sensors.magnetometer_valid,
                 "earth": sensors.earth_sensor_valid,
             },
+            mode=mode.current.value,
+            fault_reason=faults.safe_mode_reason,
+            magnetorquer_dipole_a_m2=magnetorquer.commanded_dipole_a_m2,
+            magnetorquer_torque_nm=magnetorquer.applied_torque_nm,
         ),
         illumination=IlluminationTelemetry(
             sunlit=state.is_sunlit,

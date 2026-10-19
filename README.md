@@ -129,6 +129,13 @@ gyro measurements and corrects the quaternion with whichever vector sensors
 are valid; the controller uses this estimate rather than truth state. Estimated
 attitude, measured body rate, and sensor-valid flags are included in telemetry.
 
+`ADCSModeState` supports nadir pointing, inertial hold, Sun pointing, safe mode,
+and magnetic detumble. Losing the gyro or every absolute-vector sensor causes
+automatic safe-mode entry and publishes a fault reason. A three-axis limited
+magnetorquer damps body rates in detumble mode and counters reaction-wheel
+unloading torque whenever wheel speed exceeds the configured momentum threshold.
+Mode, fault, commanded dipole, and magnetic torque are exposed in telemetry.
+
 ## Thermal control system
 
 `ThermalControlSystem` provides nine paired temperature sensors and heaters by

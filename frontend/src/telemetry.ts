@@ -34,6 +34,10 @@ export interface EntityTelemetry {
     estimatedQuaternionXyzw: [number, number, number, number];
     measuredAngularVelocityBodyRadS: [number, number, number];
     sensorValid: Record<string, boolean>;
+    mode: string;
+    faultReason: string | null;
+    magnetorquerDipoleAM2: [number, number, number];
+    magnetorquerTorqueNm: [number, number, number];
   };
   illumination: {
     sunlit: boolean | null;

@@ -69,6 +69,8 @@ def test_snapshot_contains_cesium_ready_orbit_attitude_and_subsystems(
     assert len(iss.adcs.disturbance_torque_nm) == 3
     assert len(iss.adcs.estimated_quaternion_xyzw) == 4
     assert iss.adcs.sensor_valid["gyro"]
+    assert iss.adcs.mode == "NADIR_POINTING"
+    assert len(iss.adcs.magnetorquer_torque_nm) == 3
     assert iss.illumination.sunlit is True
     assert iss.power.battery_capacity_wh == 1_000.0
     assert iss.power.state_of_charge == pytest.approx(state.battery_charge_wh / 1_000.0)

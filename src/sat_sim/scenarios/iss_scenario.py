@@ -7,6 +7,8 @@ from datetime import datetime
 from time import sleep
 
 from sat_sim.adcs import (
+    ADCSFaultState,
+    ADCSModeState,
     ADCSSensorConfiguration,
     ADCSSensorMeasurements,
     ADCSStatus,
@@ -18,6 +20,8 @@ from sat_sim.adcs import (
     AttitudeReference,
     AttitudeState,
     GravityGradientTorque,
+    MagnetorquerAssembly,
+    MomentumManagementConfiguration,
     ReactionWheelAssembly,
     ResidualMagneticDipoleTorque,
     RigidBody,
@@ -201,6 +205,10 @@ class ISSScenario(Scenario):
         self.world.add(self.entity, ADCSSensorMeasurements())
         self.world.add(self.entity, AttitudeEstimate())
         self.world.add(self.entity, AttitudeEstimatorConfiguration())
+        self.world.add(self.entity, ADCSModeState())
+        self.world.add(self.entity, ADCSFaultState())
+        self.world.add(self.entity, MagnetorquerAssembly())
+        self.world.add(self.entity, MomentumManagementConfiguration())
         self.world.add(self.entity, ReactionWheelAssembly())
         self.world.add(self.entity, ADCSStatus())
         self.world.add(self.entity, self.pcdu)
