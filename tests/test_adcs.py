@@ -6,6 +6,7 @@ import pytest
 from sat_sim.adcs import (
     ADCSStatus,
     ADCSSystem,
+    AerodynamicDragTorque,
     AttitudeController,
     AttitudeReference,
     AttitudeState,
@@ -84,7 +85,12 @@ def test_gravity_gradient_is_zero_along_a_principal_axis() -> None:
     body = RigidBody((10.0, 20.0, 30.0))
     state = AttitudeState()
 
-    torque = model.torque_body_nm(body, state, ECIPosition(7_000_000.0, 0.0, 0.0))
+    torque = model.torque_body_nm(
+        body,
+        state,
+        ECIPosition(7_000_000.0, 0.0, 0.0),
+        ECIVelocity(0.0, 0.0, 0.0),
+    )
 
     assert torque == pytest.approx((0.0, 0.0, 0.0))
 
@@ -96,7 +102,12 @@ def test_gravity_gradient_matches_point_mass_equation() -> None:
     radius = 2.0
     component = radius / sqrt(2.0)
 
-    torque = model.torque_body_nm(body, state, ECIPosition(component, component, 0.0))
+    torque = model.torque_body_nm(
+        body,
+        state,
+        ECIPosition(component, component, 0.0),
+        ECIVelocity(0.0, 0.0, 0.0),
+    )
 
     assert torque == pytest.approx((0.0, 0.0, 3.0 / 16.0))
 
@@ -121,6 +132,44 @@ def test_adcs_sums_disturbance_torque_into_dynamics() -> None:
     assert world.get(entity, AttitudeState).angular_velocity_body_rad_s[2] == (
         pytest.approx(1.0 / 16.0)
     )
+
+
+def test_aerodynamic_drag_torque_matches_force_and_lever_arm() -> None:
+    model = AerodynamicDragTorque(
+        atmospheric_density_kg_m3=2.0,
+        drag_coefficient=1.0,
+        reference_area_m2=1.0,
+        center_of_pressure_body_m=(0.0, 1.0, 0.0),
+        atmosphere_angular_velocity_rad_s=0.0,
+    )
+
+    torque = model.torque_body_nm(
+        RigidBody(),
+        AttitudeState(),
+        ECIPosition(1.0, 0.0, 0.0),
+        ECIVelocity(2.0, 0.0, 0.0),
+    )
+
+    assert torque == pytest.approx((0.0, 0.0, 4.0))
+
+
+def test_aerodynamic_drag_accounts_for_corotating_atmosphere() -> None:
+    model = AerodynamicDragTorque(
+        atmospheric_density_kg_m3=1.0,
+        drag_coefficient=1.0,
+        reference_area_m2=1.0,
+        center_of_pressure_body_m=(0.0, 1.0, 0.0),
+        atmosphere_angular_velocity_rad_s=2.0,
+    )
+
+    torque = model.torque_body_nm(
+        RigidBody(),
+        AttitudeState(),
+        ECIPosition(1.0, 0.0, 0.0),
+        ECIVelocity(0.0, 2.0, 0.0),
+    )
+
+    assert torque == (0.0, 0.0, 0.0)
 
 
 def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
@@ -150,6 +199,7 @@ def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
         lambda: AttitudeController(-1.0, 1.0),
         lambda: ReactionWheelAssembly(max_torque_nm=0.0),
         lambda: GravityGradientTorque(0.0),
+        lambda: AerodynamicDragTorque(drag_coefficient=0.0),
     ],
 )
 def test_invalid_adcs_configuration_is_rejected(

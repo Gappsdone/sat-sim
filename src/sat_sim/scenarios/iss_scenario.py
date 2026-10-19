@@ -9,6 +9,7 @@ from time import sleep
 from sat_sim.adcs import (
     ADCSStatus,
     ADCSSystem,
+    AerodynamicDragTorque,
     AttitudeController,
     AttitudeReference,
     AttitudeState,
@@ -127,6 +128,7 @@ class ISSScenario(Scenario):
         solar_panel_peak_power_w: float = 100.0,
         adcs_idle_power_w: float = 8.0,
         gravity_gradient_enabled: bool = True,
+        aerodynamic_drag_enabled: bool = True,
     ) -> None:
         super().__init__()
         self.timeout = timeout
@@ -151,8 +153,13 @@ class ISSScenario(Scenario):
         self.pcdu = PCDU(battery_capacity_wh, initial_battery_charge_wh)
         self.solar_panel = SolarPanel(solar_panel_peak_power_w)
         self.pcdu_system = PCDUSystem()
-        disturbance_models = (
-            (GravityGradientTorque(),) if gravity_gradient_enabled else ()
+        disturbance_models = tuple(
+            model
+            for enabled, model in (
+                (gravity_gradient_enabled, GravityGradientTorque()),
+                (aerodynamic_drag_enabled, AerodynamicDragTorque()),
+            )
+            if enabled
         )
         self.adcs_system = ADCSSystem(disturbance_models=disturbance_models)
         self.adcs_power = PowerConsumer(adcs_idle_power_w)

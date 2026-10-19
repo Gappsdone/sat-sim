@@ -99,6 +99,13 @@ pass `gravity_gradient_enabled=False` to `ISSScenario` to disable it. The model
 uses SI units and evaluates `3 μ/r³ (r̂ × I r̂)` in spacecraft body axes on
 every integration substep.
 
+An aerodynamic-drag torque model is also enabled by default and can be disabled
+with `aerodynamic_drag_enabled=False`. It subtracts a co-rotating atmosphere's
+velocity from the ECI spacecraft velocity, evaluates a constant-density drag
+force, transforms that force into body axes, and applies it at a configurable
+center-of-pressure offset. Its default density, area, and geometry are
+illustrative rather than an ISS atmosphere or structural model.
+
 The scenario owns ADCS scheduling: orbit propagation, reference/control,
 rigid-body integration, thermal dynamics, and finally electrical accounting.
 Thermal and power systems consume the completed attitude without changing it.

@@ -22,6 +22,7 @@ from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition, ECIVelocity
 
 EARTH_GRAVITATIONAL_PARAMETER_M3_S2 = 3.986004418e14
+EARTH_ANGULAR_VELOCITY_RAD_S = 7.2921159e-5
 
 
 @dataclass
@@ -103,6 +104,7 @@ class DisturbanceTorqueModel(Protocol):
         body: RigidBody,
         state: AttitudeState,
         position: ECIPosition,
+        velocity: ECIVelocity,
     ) -> Vector3: ...
 
 
@@ -122,8 +124,10 @@ class GravityGradientTorque:
         body: RigidBody,
         state: AttitudeState,
         position: ECIPosition,
+        velocity: ECIVelocity,
     ) -> Vector3:
         """Return ``3 mu / r^3 * (r_hat cross I r_hat)`` in body axes."""
+        del velocity
         position_eci = (position.x, position.y, position.z)
         radius = sqrt(dot(position_eci, position_eci))
         if not isfinite(radius) or radius <= 0.0:
@@ -138,6 +142,66 @@ class GravityGradientTorque:
         scale = 3.0 * self.gravitational_parameter_m3_s2 / radius**3
         torque = cross(radial_body, inertia_radial)  # type: ignore[arg-type]
         return tuple(scale * value for value in torque)  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class AerodynamicDragTorque:
+    """Free-molecular drag torque using a constant atmospheric density."""
+
+    atmospheric_density_kg_m3: float = 4.0e-12
+    drag_coefficient: float = 2.2
+    reference_area_m2: float = 10.0
+    center_of_pressure_body_m: Vector3 = (0.0, 0.5, 0.0)
+    atmosphere_angular_velocity_rad_s: float = EARTH_ANGULAR_VELOCITY_RAD_S
+
+    def __post_init__(self) -> None:
+        _require_nonnegative(
+            "atmospheric_density_kg_m3", self.atmospheric_density_kg_m3
+        )
+        _require_positive("drag_coefficient", self.drag_coefficient)
+        _require_positive("reference_area_m2", self.reference_area_m2)
+        _require_vector("center_of_pressure_body_m", self.center_of_pressure_body_m)
+        _require_nonnegative(
+            "atmosphere_angular_velocity_rad_s",
+            self.atmosphere_angular_velocity_rad_s,
+        )
+
+    def torque_body_nm(
+        self,
+        body: RigidBody,
+        state: AttitudeState,
+        position: ECIPosition,
+        velocity: ECIVelocity,
+    ) -> Vector3:
+        """Return center-of-pressure lever arm crossed with body-frame drag."""
+        del body
+        atmosphere_velocity_eci = (
+            -self.atmosphere_angular_velocity_rad_s * position.y,
+            self.atmosphere_angular_velocity_rad_s * position.x,
+            0.0,
+        )
+        relative_velocity_eci = (
+            velocity.x - atmosphere_velocity_eci[0],
+            velocity.y - atmosphere_velocity_eci[1],
+            velocity.z - atmosphere_velocity_eci[2],
+        )
+        speed = sqrt(dot(relative_velocity_eci, relative_velocity_eci))
+        if not isfinite(speed):
+            raise ValueError("relative atmospheric velocity must be finite")
+        if speed == 0.0 or self.atmospheric_density_kg_m3 == 0.0:
+            return (0.0, 0.0, 0.0)
+        force_scale = (
+            -0.5
+            * self.atmospheric_density_kg_m3
+            * self.drag_coefficient
+            * self.reference_area_m2
+            * speed
+        )
+        force_body = _eci_to_body(
+            tuple(force_scale * value for value in relative_velocity_eci),  # type: ignore[arg-type]
+            state.quaternion_xyzw,
+        )
+        return cross(self.center_of_pressure_body_m, force_body)
 
 
 class ADCSSystem:
@@ -217,6 +281,7 @@ class ADCSSystem:
         controller = world.get(entity, AttitudeController)
         wheels = world.get(entity, ReactionWheelAssembly)
         position = world.get(entity, ECIPosition)
+        velocity = world.get(entity, ECIVelocity)
         error = quaternion_multiply(
             quaternion_conjugate(state.quaternion_xyzw), reference.quaternion_xyzw
         )
@@ -233,7 +298,7 @@ class ADCSSystem:
         )
         applied, saturated = apply_reaction_wheels(wheels, commanded, delta_time)
         model_torques = tuple(
-            model.torque_body_nm(body, state, position)
+            model.torque_body_nm(body, state, position, velocity)
             for model in self.disturbance_models
         )
         disturbance = tuple(
