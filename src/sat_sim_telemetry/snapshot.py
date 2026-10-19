@@ -1,5 +1,11 @@
 """Create immutable telemetry snapshots from an ISS ECS scenario."""
 
+from dataclasses import fields, is_dataclass
+from enum import Enum
+from numbers import Integral, Real
+
+from pydantic import JsonValue
+
 from sat_sim.adcs import (
     ADCSFaultState,
     ADCSModeState,
@@ -25,6 +31,35 @@ from sat_sim_telemetry.models import (
     ThermalChannelTelemetry,
     Vector3,
 )
+
+
+def _component_value(value: object) -> JsonValue:
+    """Convert ECS component state into JSON-compatible primitives."""
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, Enum):
+        return _component_value(value.value)
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, Real):
+        return float(value)
+    if isinstance(value, (list, tuple)):
+        return [_component_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _component_value(item) for key, item in value.items()}
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _component_value(getattr(value, field.name))
+            for field in fields(value)
+        }
+    raise TypeError(f"unsupported component value: {type(value).__name__}")
+
+
+def _component_fields(component: object) -> dict[str, JsonValue]:
+    values = _component_value(component)
+    if not isinstance(values, dict):
+        raise TypeError(f"component must be a dataclass: {type(component).__name__}")
+    return values
 
 
 def snapshot_iss(
@@ -127,14 +162,20 @@ def describe_iss_scenario(scenario: ISSScenario) -> ScenarioDescription:
         )
         for _entity, sensor, heater in scenario.world.query(TemperatureSensor, Heater)
     )
+    component_types = scenario.world.component_types(scenario.entity)
     return ScenarioDescription(
         scenario="ISS",
         entities=("iss",),
         entity_components={
-            "iss": tuple(
-                component_type.__name__
-                for component_type in scenario.world.component_types(scenario.entity)
-            )
+            "iss": tuple(component_type.__name__ for component_type in component_types)
+        },
+        entity_component_values={
+            "iss": {
+                component_type.__name__: _component_fields(
+                    scenario.world.get(scenario.entity, component_type)
+                )
+                for component_type in component_types
+            }
         },
         battery_capacity_wh=scenario.pcdu.capacity_wh,
         solar_panel_peak_power_w=scenario.solar_panel.peak_power_w,

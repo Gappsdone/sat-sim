@@ -65,21 +65,32 @@ export interface ScenarioDescription {
   scenario: string;
   entities: string[];
   entityComponents: Record<string, string[]>;
+  entityComponentValues: Record<string, Record<string, Record<string, unknown>>>;
 }
 
-export function issComponentNames(value: unknown): string[] {
+export interface ComponentSnapshot {
+  name: string;
+  values: Record<string, unknown>;
+}
+
+export function issComponents(value: unknown): ComponentSnapshot[] {
   if (typeof value !== "object" || value === null) {
     throw new TypeError("scenario description must be an object");
   }
-  const entityComponents = (value as { entityComponents?: unknown }).entityComponents;
-  if (typeof entityComponents !== "object" || entityComponents === null) {
-    throw new TypeError("scenario description is missing entityComponents");
+  const componentValues = (value as { entityComponentValues?: unknown }).entityComponentValues;
+  if (typeof componentValues !== "object" || componentValues === null) {
+    throw new TypeError("scenario description is missing entityComponentValues");
   }
-  const names = (entityComponents as { iss?: unknown }).iss;
-  if (!Array.isArray(names) || !names.every((name) => typeof name === "string")) {
-    throw new TypeError("scenario description is missing the ISS component list");
+  const components = (componentValues as { iss?: unknown }).iss;
+  if (typeof components !== "object" || components === null || Array.isArray(components)) {
+    throw new TypeError("scenario description is missing the ISS component values");
   }
-  return names;
+  return Object.entries(components).map(([name, values]) => {
+    if (typeof values !== "object" || values === null || Array.isArray(values)) {
+      throw new TypeError(`component ${name} values must be an object`);
+    }
+    return { name, values: values as Record<string, unknown> };
+  });
 }
 
 export function telemetryWebSocketUrl(location: Location): string {
@@ -89,6 +100,7 @@ export function telemetryWebSocketUrl(location: Location): string {
 
 export function componentLabel(name: string): string {
   return name
+    .replaceAll("_", " ")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2");
 }

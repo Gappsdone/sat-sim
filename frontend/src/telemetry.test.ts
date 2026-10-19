@@ -2,23 +2,29 @@ import { describe, expect, it } from "vitest";
 import {
   componentLabel,
   illuminationLabel,
-  issComponentNames,
+  issComponents,
   temperatureRange,
   telemetryWebSocketUrl,
 } from "./telemetry";
 
 describe("telemetry presentation", () => {
-  it("reads the ISS component inventory from scenario metadata", () => {
-    expect(issComponentNames({ entityComponents: { iss: ["PCDU", "SolarPanel"] } })).toEqual([
-      "PCDU",
-      "SolarPanel",
+  it("reads the ISS component values from scenario metadata", () => {
+    expect(
+      issComponents({
+        entityComponentValues: {
+          iss: { PCDU: { chargeWh: 500 }, SolarPanel: { peakPowerW: 100 } },
+        },
+      }),
+    ).toEqual([
+      { name: "PCDU", values: { chargeWh: 500 } },
+      { name: "SolarPanel", values: { peakPowerW: 100 } },
     ]);
   });
 
   it("rejects scenario metadata without a valid ISS inventory", () => {
-    expect(() => issComponentNames({ entities: ["iss"] })).toThrow(/entityComponents/);
-    expect(() => issComponentNames({ entityComponents: { iss: ["PCDU", 1] } })).toThrow(
-      /ISS component list/,
+    expect(() => issComponents({ entities: ["iss"] })).toThrow(/entityComponentValues/);
+    expect(() => issComponents({ entityComponentValues: { iss: [] } })).toThrow(
+      /ISS component values/,
     );
   });
 
@@ -43,5 +49,6 @@ describe("telemetry presentation", () => {
     expect(componentLabel("ECIPosition")).toBe("ECI Position");
     expect(componentLabel("ADCSSensorConfiguration")).toBe("ADCS Sensor Configuration");
     expect(componentLabel("ReactionWheelAssembly")).toBe("Reaction Wheel Assembly");
+    expect(componentLabel("angular_velocity_body_rad_s")).toBe("angular velocity body rad s");
   });
 });

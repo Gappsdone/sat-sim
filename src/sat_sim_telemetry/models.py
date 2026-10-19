@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 def _camel_case(name: str) -> str:
@@ -109,6 +109,7 @@ class ScenarioDescription(WireModel):
     scenario: str
     entities: tuple[str, ...]
     entity_components: dict[str, tuple[str, ...]]
+    entity_component_values: dict[str, dict[str, dict[str, JsonValue]]]
     coordinate_frame: Literal["ECI"] = "ECI"
     position_unit: Literal["m"] = "m"
     velocity_unit: Literal["m/s"] = "m/s"

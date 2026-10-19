@@ -23,9 +23,10 @@ import "./styles.css";
 import {
   componentLabel,
   illuminationLabel,
-  issComponentNames,
+  issComponents,
   telemetryWebSocketUrl,
   temperatureRange,
+  type ComponentSnapshot,
   type EntityTelemetry,
   type TelemetryFrame,
 } from "./telemetry";
@@ -94,31 +95,47 @@ for (const tab of tabs) {
   });
 }
 
-function renderComponents(names: string[]): void {
+function formatComponentValue(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function renderComponents(components: ComponentSnapshot[]): void {
   const list = document.querySelector<HTMLDivElement>("#component-list")!;
-  const cards = names.map((name) => {
+  const cards = components.map(({ name, values }) => {
     const card = document.createElement("article");
     const label = document.createElement("strong");
     const type = document.createElement("code");
+    const fields = document.createElement("dl");
     label.textContent = componentLabel(name);
     type.textContent = name;
-    card.append(label, type);
+    for (const [field, value] of Object.entries(values)) {
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = componentLabel(field);
+      description.textContent = formatComponentValue(value);
+      fields.append(term, description);
+    }
+    card.append(label, type, fields);
     return card;
   });
   list.replaceChildren(...cards);
-  setText("component-count", `${names.length} TOTAL`);
+  setText("component-count", `${components.length} TOTAL`);
 }
 
 async function loadComponents(): Promise<void> {
+  let refreshDelay = 1_000;
   try {
     const response = await fetch("/api/v1/scenario");
     if (!response.ok) throw new Error(`scenario request failed: ${response.status}`);
-    renderComponents(issComponentNames(await response.json()));
+    renderComponents(issComponents(await response.json()));
   } catch {
     document.querySelector<HTMLDivElement>("#component-list")!.innerHTML =
       '<p class="components-status error">Component inventory unavailable. Retrying…</p>';
-    window.setTimeout(loadComponents, 5_000);
+    refreshDelay = 5_000;
   }
+  window.setTimeout(loadComponents, refreshDelay);
 }
 
 const viewer = new Viewer("cesium", {

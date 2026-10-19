@@ -60,6 +60,7 @@ def description() -> ScenarioDescription:
         scenario="ISS",
         entities=("iss",),
         entity_components={"iss": ()},
+        entity_component_values={"iss": {}},
         battery_capacity_wh=1_000.0,
         solar_panel_peak_power_w=100.0,
         solar_panel_normal_body=(0.0, 0.0, -1.0),

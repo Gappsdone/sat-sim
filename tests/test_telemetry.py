@@ -108,6 +108,17 @@ def test_description_separates_static_geometry_from_streamed_state(
         "SolarPanel",
         "SpacecraftAttitude",
     )
+    assert description.entity_component_values["iss"]["PCDU"] == {
+        "capacity_wh": 1_000.0,
+        "charge_wh": 500.0,
+        "generated_power_w": 0.0,
+        "consumed_power_w": 0.0,
+        "is_sunlit": None,
+    }
+    assert (
+        description.entity_component_values["iss"]["ADCSModeState"]["current"]
+        == "NADIR_POINTING"
+    )
     assert description.coordinate_frame == "ECI"
     assert description.solar_panel_peak_power_w == 100.0
     assert len(description.thermal_channels) == 9
@@ -156,6 +167,10 @@ def test_api_serves_metadata_latest_snapshot_and_websocket(
         metadata = client.get("/api/v1/scenario")
         assert metadata.status_code == 200
         assert metadata.json()["coordinateFrame"] == "ECI"
+        assert (
+            metadata.json()["entityComponentValues"]["iss"]["PCDU"]["capacity_wh"]
+            == 1_000.0
+        )
 
         state = scenario.step(timestamp + timedelta(seconds=1))
         frame = snapshot_iss(scenario, state, 0)
