@@ -11,7 +11,6 @@ from sat_sim.attitude import AttitudeSystem, SpacecraftAttitude
 from sat_sim.ecs import Entity, World
 from sat_sim.pcdu import PowerConsumer
 from sat_sim.position import ECIPosition
-from sat_sim.solar import EARTH_RADIUS_METERS as EARTH_RADIUS_METERS
 from sat_sim.solar import satellite_is_sunlit as satellite_is_sunlit
 from sat_sim.solar import solar_direction_eci as solar_direction_eci
 

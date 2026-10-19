@@ -22,14 +22,16 @@ from sat_sim.attitude import (
     quaternion_to_axes,
     unit_vector,
 )
+from sat_sim.constants import (
+    EARTH_ANGULAR_VELOCITY_RAD_S,
+    EARTH_EQUATORIAL_MAGNETIC_FIELD_T,
+    EARTH_GRAVITATIONAL_PARAMETER_M3_S2,
+    EARTH_MEAN_RADIUS_METERS,
+    SOLAR_RADIATION_PRESSURE_N_M2,
+)
 from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition, ECIVelocity
-from sat_sim.solar import EARTH_RADIUS_METERS, satellite_is_sunlit, solar_direction_eci
-
-EARTH_GRAVITATIONAL_PARAMETER_M3_S2 = 3.986004418e14
-EARTH_ANGULAR_VELOCITY_RAD_S = 7.2921159e-5
-SOLAR_RADIATION_PRESSURE_N_M2 = 4.56e-6
-EARTH_EQUATORIAL_MAGNETIC_FIELD_T = 3.12e-5
+from sat_sim.solar import satellite_is_sunlit, solar_direction_eci
 
 
 @dataclass
@@ -375,7 +377,7 @@ def earth_magnetic_field_eci(position: ECIPosition) -> Vector3:
     radial = tuple(value / radius for value in position_eci)
     dipole_axis: Vector3 = (0.0, 0.0, 1.0)
     projection = dot(dipole_axis, radial)  # type: ignore[arg-type]
-    scale = EARTH_EQUATORIAL_MAGNETIC_FIELD_T * (EARTH_RADIUS_METERS / radius) ** 3
+    scale = EARTH_EQUATORIAL_MAGNETIC_FIELD_T * (EARTH_MEAN_RADIUS_METERS / radius) ** 3
     return tuple(
         scale * (3.0 * projection * radial[index] - dipole_axis[index])
         for index in range(3)

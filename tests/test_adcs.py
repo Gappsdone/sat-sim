@@ -35,9 +35,10 @@ from sat_sim.attitude import (
     quaternion_multiply,
     quaternion_to_axes,
 )
+from sat_sim.constants import EARTH_MEAN_RADIUS_METERS
 from sat_sim.ecs import World
 from sat_sim.position import ECIPosition, ECIVelocity
-from sat_sim.solar import EARTH_RADIUS_METERS, solar_direction_eci
+from sat_sim.solar import solar_direction_eci
 
 
 def make_adcs_world() -> tuple[World, int, ADCSSystem]:
@@ -250,7 +251,7 @@ def test_residual_magnetic_dipole_torque_at_magnetic_equator() -> None:
     torque = model.torque_body_nm(
         RigidBody(),
         AttitudeState(),
-        ECIPosition(EARTH_RADIUS_METERS, 0.0, 0.0),
+        ECIPosition(EARTH_MEAN_RADIUS_METERS, 0.0, 0.0),
         ECIVelocity(0.0, 0.0, 0.0),
         None,
     )

@@ -4,10 +4,10 @@ from math import isclose, log1p
 import pytest
 
 from sat_sim.attitude import SpacecraftAttitude
+from sat_sim.constants import EARTH_MEAN_RADIUS_METERS
 from sat_sim.ecs import World
 from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.services.tcs import (
-    EARTH_RADIUS_METERS,
     Heater,
     HeaterCommand,
     IlluminationState,
@@ -265,7 +265,7 @@ def test_orbital_attitude_updates_before_solar_heating() -> None:
 
 def test_earth_shadow_cools_all_sensors_without_heaters() -> None:
     sun = solar_direction_eci(REFERENCE_TIME)
-    radius = EARTH_RADIUS_METERS + 300_000.0
+    radius = EARTH_MEAN_RADIUS_METERS + 300_000.0
     position = (-sun[0] * radius, -sun[1] * radius, -sun[2] * radius)
     tcs = ThermalControlSystem(
         sensor_count=2,
@@ -301,7 +301,7 @@ def test_solar_geometry_uses_cylindrical_earth_shadow() -> None:
         perpendicular[1] / perpendicular_length,
         perpendicular[2] / perpendicular_length,
     )
-    offset = EARTH_RADIUS_METERS + 10_000.0
+    offset = EARTH_MEAN_RADIUS_METERS + 10_000.0
     outside_shadow = (
         -sun[0] * 7_000_000.0 + offset * perpendicular[0],
         -sun[1] * 7_000_000.0 + offset * perpendicular[1],

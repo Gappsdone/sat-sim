@@ -1,9 +1,10 @@
 import math
 from dataclasses import dataclass
 
-# WGS84 ellipsoid constants
-WGS84_SEMI_MAJOR_AXIS = 6378137.0  # meters
-WGS84_ECCENTRICITY_SQUARED = 6.69437999014e-3  # square of first eccentricity
+from sat_sim.constants import (
+    WGS84_ECCENTRICITY_SQUARED,
+    WGS84_SEMI_MAJOR_AXIS_METERS,
+)
 
 
 @dataclass(slots=True, repr=False)
@@ -23,7 +24,7 @@ class ECEFPosition:
         lat_rad = math.radians(latitude)
         lon_rad = math.radians(longitude)
 
-        prime_vertical_radius = WGS84_SEMI_MAJOR_AXIS / math.sqrt(
+        prime_vertical_radius = WGS84_SEMI_MAJOR_AXIS_METERS / math.sqrt(
             1 - WGS84_ECCENTRICITY_SQUARED * (math.sin(lat_rad) ** 2)
         )
 

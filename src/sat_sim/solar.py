@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from math import cos, isfinite, radians, sin, sqrt
 
-EARTH_RADIUS_METERS = 6_371_000.0
+from sat_sim.constants import EARTH_MEAN_RADIUS_METERS
 
 
 def solar_direction_eci(timestamp: datetime) -> tuple[float, float, float]:
@@ -53,4 +53,4 @@ def satellite_is_sunlit(
             - along_sun * along_sun,
         )
     )
-    return distance_from_shadow_axis >= EARTH_RADIUS_METERS
+    return distance_from_shadow_axis >= EARTH_MEAN_RADIUS_METERS

@@ -79,6 +79,10 @@ simulation.run()  # returns when interrupted with Ctrl+C
 The ISS-specific class fetches its TLE and creates its ECS entity in `setup()`;
 `Simulation` calls `step()` at each scheduled tick.
 
+Shared Earth geometry, gravity, rotation, magnetic-field, and solar-radiation
+pressure values are defined in `sat_sim.constants` using SI units. Tunable
+spacecraft design values remain with their owning simulation components.
+
 ## Attitude determination and control
 
 `ISSScenario` uses the rigid-body ADCS model in `sat_sim.adcs` instead of

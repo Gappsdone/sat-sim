@@ -3,11 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from sat_sim.position import (
+from sat_sim.constants import (
     WGS84_ECCENTRICITY_SQUARED,
-    WGS84_SEMI_MAJOR_AXIS,
-    ECEFPosition,
+    WGS84_SEMI_MAJOR_AXIS_METERS,
 )
+from sat_sim.position import ECEFPosition
 from sat_sim.scenario import Scenario
 from sat_sim.scenarios import iss_scenario
 from sat_sim.simulation import Simulation
@@ -36,12 +36,14 @@ class FakeScenario(Scenario):
 
 def test_current_position_conversion_equator_and_pole() -> None:
     equator = ECEFPosition.from_lat_lon_alt(0.0, 0.0, 100.0)
-    assert equator.x == pytest.approx(WGS84_SEMI_MAJOR_AXIS + 100.0)
+    assert equator.x == pytest.approx(WGS84_SEMI_MAJOR_AXIS_METERS + 100.0)
     assert equator.y == pytest.approx(0.0)
     assert equator.z == pytest.approx(0.0)
 
     pole = ECEFPosition.from_lat_lon_alt(90.0, 0.0, 0.0)
-    polar_radius = WGS84_SEMI_MAJOR_AXIS * (1 - WGS84_ECCENTRICITY_SQUARED) ** 0.5
+    polar_radius = (
+        WGS84_SEMI_MAJOR_AXIS_METERS * (1 - WGS84_ECCENTRICITY_SQUARED) ** 0.5
+    )
     assert pole.x == pytest.approx(0.0, abs=1e-6)
     assert pole.y == pytest.approx(0.0, abs=1e-6)
     assert pole.z == pytest.approx(polar_radius)
