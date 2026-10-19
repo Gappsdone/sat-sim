@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { componentLabel, illuminationLabel, temperatureRange, telemetryWebSocketUrl } from "./telemetry";
+import {
+  componentLabel,
+  illuminationLabel,
+  issComponentNames,
+  temperatureRange,
+  telemetryWebSocketUrl,
+} from "./telemetry";
 
 describe("telemetry presentation", () => {
+  it("reads the ISS component inventory from scenario metadata", () => {
+    expect(issComponentNames({ entityComponents: { iss: ["PCDU", "SolarPanel"] } })).toEqual([
+      "PCDU",
+      "SolarPanel",
+    ]);
+  });
+
+  it("rejects scenario metadata without a valid ISS inventory", () => {
+    expect(() => issComponentNames({ entities: ["iss"] })).toThrow(/entityComponents/);
+    expect(() => issComponentNames({ entityComponents: { iss: ["PCDU", 1] } })).toThrow(
+      /ISS component list/,
+    );
+  });
+
   it("selects the WebSocket scheme from the page URL", () => {
     expect(telemetryWebSocketUrl({ protocol: "http:", host: "localhost:5173" } as Location)).toBe("ws://localhost:5173/api/v1/telemetry");
     expect(telemetryWebSocketUrl({ protocol: "https:", host: "mission.test" } as Location)).toBe("wss://mission.test/api/v1/telemetry");

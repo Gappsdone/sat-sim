@@ -67,6 +67,21 @@ export interface ScenarioDescription {
   entityComponents: Record<string, string[]>;
 }
 
+export function issComponentNames(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError("scenario description must be an object");
+  }
+  const entityComponents = (value as { entityComponents?: unknown }).entityComponents;
+  if (typeof entityComponents !== "object" || entityComponents === null) {
+    throw new TypeError("scenario description is missing entityComponents");
+  }
+  const names = (entityComponents as { iss?: unknown }).iss;
+  if (!Array.isArray(names) || !names.every((name) => typeof name === "string")) {
+    throw new TypeError("scenario description is missing the ISS component list");
+  }
+  return names;
+}
+
 export function telemetryWebSocketUrl(location: Location): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${location.host}/api/v1/telemetry`;

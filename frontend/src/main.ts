@@ -23,10 +23,10 @@ import "./styles.css";
 import {
   componentLabel,
   illuminationLabel,
+  issComponentNames,
   telemetryWebSocketUrl,
   temperatureRange,
   type EntityTelemetry,
-  type ScenarioDescription,
   type TelemetryFrame,
 } from "./telemetry";
 
@@ -113,11 +113,11 @@ async function loadComponents(): Promise<void> {
   try {
     const response = await fetch("/api/v1/scenario");
     if (!response.ok) throw new Error(`scenario request failed: ${response.status}`);
-    const description = (await response.json()) as ScenarioDescription;
-    renderComponents(description.entityComponents.iss ?? []);
+    renderComponents(issComponentNames(await response.json()));
   } catch {
     document.querySelector<HTMLDivElement>("#component-list")!.innerHTML =
-      '<p class="components-status error">Component inventory unavailable.</p>';
+      '<p class="components-status error">Component inventory unavailable. Retrying…</p>';
+    window.setTimeout(loadComponents, 5_000);
   }
 }
 
