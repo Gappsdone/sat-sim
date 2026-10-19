@@ -93,14 +93,20 @@ The initial state is aligned with the current nadir frame and initialized at
 the orbital-frame angular rate. These parameters are illustrative spacecraft
 values, not validated ISS hardware values.
 
+The dynamics also accept independently testable environmental-torque models.
+The ISS scenario enables a point-mass Earth gravity-gradient model by default;
+pass `gravity_gradient_enabled=False` to `ISSScenario` to disable it. The model
+uses SI units and evaluates `3 μ/r³ (r̂ × I r̂)` in spacecraft body axes on
+every integration substep.
+
 The scenario owns ADCS scheduling: orbit propagation, reference/control,
 rigid-body integration, thermal dynamics, and finally electrical accounting.
 Thermal and power systems consume the completed attitude without changing it.
 Standalone `ThermalControlSystem` users retain the legacy ideal
 `AttitudeSystem` behavior unless they supply their own fixed attitude.
-Telemetry includes body rates, target quaternion, pointing error, commanded and
-applied torque, wheel speeds, and wheel saturation. The ADCS also contributes
-an 8 W default idle electrical load.
+Telemetry includes body rates, target quaternion, pointing error, commanded,
+applied, and disturbance torque, wheel speeds, and wheel saturation. The ADCS
+also contributes an 8 W default idle electrical load.
 
 ## Thermal control system
 

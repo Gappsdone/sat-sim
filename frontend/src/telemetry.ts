@@ -28,6 +28,7 @@ export interface EntityTelemetry {
     targetQuaternionXyzw: [number, number, number, number];
     commandedTorqueNm: [number, number, number];
     appliedTorqueNm: [number, number, number];
+    disturbanceTorqueNm: [number, number, number];
     wheelSpeedsRadS: [number, number, number];
     wheelSaturated: [boolean, boolean, boolean];
   };

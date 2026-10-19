@@ -1,7 +1,9 @@
 """Rigid-body attitude dynamics, nadir control, and reaction-wheel actuation."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from math import acos, ceil, isfinite, pi
+from math import acos, ceil, isfinite, pi, sqrt
+from typing import Protocol
 
 from sat_sim.attitude import (
     Quaternion,
@@ -18,6 +20,8 @@ from sat_sim.attitude import (
 )
 from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition, ECIVelocity
+
+EARTH_GRAVITATIONAL_PARAMETER_M3_S2 = 3.986004418e14
 
 
 @dataclass
@@ -87,15 +91,66 @@ class ADCSStatus:
     pointing_error_deg: float = 0.0
     commanded_torque_nm: Vector3 = (0.0, 0.0, 0.0)
     applied_torque_nm: Vector3 = (0.0, 0.0, 0.0)
+    disturbance_torque_nm: Vector3 = (0.0, 0.0, 0.0)
     wheel_saturated: tuple[bool, bool, bool] = (False, False, False)
+
+
+class DisturbanceTorqueModel(Protocol):
+    """Calculate an environmental torque in spacecraft body axes."""
+
+    def torque_body_nm(
+        self,
+        body: RigidBody,
+        state: AttitudeState,
+        position: ECIPosition,
+    ) -> Vector3: ...
+
+
+@dataclass(frozen=True)
+class GravityGradientTorque:
+    """Gravity-gradient torque from a point-mass Earth model."""
+
+    gravitational_parameter_m3_s2: float = EARTH_GRAVITATIONAL_PARAMETER_M3_S2
+
+    def __post_init__(self) -> None:
+        _require_positive(
+            "gravitational_parameter_m3_s2", self.gravitational_parameter_m3_s2
+        )
+
+    def torque_body_nm(
+        self,
+        body: RigidBody,
+        state: AttitudeState,
+        position: ECIPosition,
+    ) -> Vector3:
+        """Return ``3 mu / r^3 * (r_hat cross I r_hat)`` in body axes."""
+        position_eci = (position.x, position.y, position.z)
+        radius = sqrt(dot(position_eci, position_eci))
+        if not isfinite(radius) or radius <= 0.0:
+            raise ValueError("position radius must be finite and greater than zero")
+        radial_body = _eci_to_body(
+            tuple(value / radius for value in position_eci),  # type: ignore[arg-type]
+            state.quaternion_xyzw,
+        )
+        inertia_radial = tuple(
+            body.inertia_kg_m2[index] * radial_body[index] for index in range(3)
+        )
+        scale = 3.0 * self.gravitational_parameter_m3_s2 / radius**3
+        torque = cross(radial_body, inertia_radial)  # type: ignore[arg-type]
+        return tuple(scale * value for value in torque)  # type: ignore[return-value]
 
 
 class ADCSSystem:
     """Track the orbital nadir frame through limited reaction-wheel torque."""
 
-    def __init__(self, max_substep_s: float = 0.1) -> None:
+    def __init__(
+        self,
+        max_substep_s: float = 0.1,
+        disturbance_models: Iterable[DisturbanceTorqueModel] = (),
+    ) -> None:
         _require_positive("max_substep_s", max_substep_s)
         self.max_substep_s = float(max_substep_s)
+        self.disturbance_models = tuple(disturbance_models)
 
     def initialize(self, world: World, entity: Entity) -> None:
         """Initialize truth and reference attitude to the current nadir frame."""
@@ -149,8 +204,8 @@ class ADCSSystem:
             orbital_rate,
         )
 
-    @staticmethod
     def _substep(
+        self,
         world: World,
         entity: Entity,
         reference: AttitudeReference,
@@ -161,6 +216,7 @@ class ADCSSystem:
         state = world.get(entity, AttitudeState)
         controller = world.get(entity, AttitudeController)
         wheels = world.get(entity, ReactionWheelAssembly)
+        position = world.get(entity, ECIPosition)
         error = quaternion_multiply(
             quaternion_conjugate(state.quaternion_xyzw), reference.quaternion_xyzw
         )
@@ -176,6 +232,13 @@ class ADCSSystem:
             for index in range(3)
         )
         applied, saturated = apply_reaction_wheels(wheels, commanded, delta_time)
+        model_torques = tuple(
+            model.torque_body_nm(body, state, position)
+            for model in self.disturbance_models
+        )
+        disturbance = tuple(
+            sum(torque[index] for torque in model_torques) for index in range(3)
+        )
         momentum = (
             body.inertia_kg_m2[0] * state.angular_velocity_body_rad_s[0],
             body.inertia_kg_m2[1] * state.angular_velocity_body_rad_s[1],
@@ -183,7 +246,8 @@ class ADCSSystem:
         )
         gyroscopic = cross(state.angular_velocity_body_rad_s, momentum)
         acceleration = tuple(
-            (applied[index] - gyroscopic[index]) / body.inertia_kg_m2[index]
+            (applied[index] + disturbance[index] - gyroscopic[index])
+            / body.inertia_kg_m2[index]
             for index in range(3)
         )
         state.angular_velocity_body_rad_s = tuple(
@@ -201,6 +265,7 @@ class ADCSSystem:
         status.pointing_error_deg = 2.0 * acos(min(1.0, abs(error[3]))) * 180.0 / pi
         status.commanded_torque_nm = commanded  # type: ignore[assignment]
         status.applied_torque_nm = applied
+        status.disturbance_torque_nm = disturbance  # type: ignore[assignment]
         status.wheel_saturated = saturated
 
 

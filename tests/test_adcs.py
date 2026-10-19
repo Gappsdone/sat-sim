@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from math import cos, radians, sin
+from math import cos, radians, sin, sqrt
 
 import pytest
 
@@ -9,6 +9,7 @@ from sat_sim.adcs import (
     AttitudeController,
     AttitudeReference,
     AttitudeState,
+    GravityGradientTorque,
     ReactionWheelAssembly,
     RigidBody,
     apply_reaction_wheels,
@@ -75,6 +76,51 @@ def test_zero_rate_and_zero_control_preserve_attitude() -> None:
 
     assert state.quaternion_xyzw == pytest.approx(initial)
     assert state.angular_velocity_body_rad_s == (0.0, 0.0, 0.0)
+    assert world.get(entity, ADCSStatus).disturbance_torque_nm == (0.0, 0.0, 0.0)
+
+
+def test_gravity_gradient_is_zero_along_a_principal_axis() -> None:
+    model = GravityGradientTorque()
+    body = RigidBody((10.0, 20.0, 30.0))
+    state = AttitudeState()
+
+    torque = model.torque_body_nm(body, state, ECIPosition(7_000_000.0, 0.0, 0.0))
+
+    assert torque == pytest.approx((0.0, 0.0, 0.0))
+
+
+def test_gravity_gradient_matches_point_mass_equation() -> None:
+    model = GravityGradientTorque(gravitational_parameter_m3_s2=1.0)
+    body = RigidBody((1.0, 2.0, 4.0))
+    state = AttitudeState()
+    radius = 2.0
+    component = radius / sqrt(2.0)
+
+    torque = model.torque_body_nm(body, state, ECIPosition(component, component, 0.0))
+
+    assert torque == pytest.approx((0.0, 0.0, 3.0 / 16.0))
+
+
+def test_adcs_sums_disturbance_torque_into_dynamics() -> None:
+    world, entity, _system = make_adcs_world()
+    controller = world.get(entity, AttitudeController)
+    controller.proportional_gain_nm = 0.0
+    controller.derivative_gain_nms = 0.0
+    world.get(entity, ECIPosition).x = sqrt(2.0)
+    world.get(entity, ECIPosition).y = sqrt(2.0)
+    world.get(entity, RigidBody).inertia_kg_m2 = (10.0, 20.0, 30.0)
+    world.get(entity, AttitudeState).quaternion_xyzw = (0.0, 0.0, 0.0, 1.0)
+    system = ADCSSystem(
+        max_substep_s=1.0,
+        disturbance_models=(GravityGradientTorque(1.0),),
+    )
+
+    status = system.update(world, entity, 1.0)
+
+    assert status.disturbance_torque_nm == pytest.approx((0.0, 0.0, 15.0 / 8.0))
+    assert world.get(entity, AttitudeState).angular_velocity_body_rad_s[2] == (
+        pytest.approx(1.0 / 16.0)
+    )
 
 
 def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
@@ -103,6 +149,7 @@ def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
         lambda: AttitudeState((0.0, 0.0, 0.0, 0.0)),
         lambda: AttitudeController(-1.0, 1.0),
         lambda: ReactionWheelAssembly(max_torque_nm=0.0),
+        lambda: GravityGradientTorque(0.0),
     ],
 )
 def test_invalid_adcs_configuration_is_rejected(

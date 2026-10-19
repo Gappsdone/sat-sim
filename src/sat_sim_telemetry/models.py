@@ -40,6 +40,7 @@ class ADCSTelemetry(WireModel):
     target_quaternion_xyzw: tuple[float, float, float, float]
     commanded_torque_nm: tuple[float, float, float]
     applied_torque_nm: tuple[float, float, float]
+    disturbance_torque_nm: tuple[float, float, float]
     wheel_speeds_rad_s: tuple[float, float, float]
     wheel_saturated: tuple[bool, bool, bool]
 

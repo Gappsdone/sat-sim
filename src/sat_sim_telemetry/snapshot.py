@@ -68,6 +68,7 @@ def snapshot_iss(
             target_quaternion_xyzw=reference.quaternion_xyzw,
             commanded_torque_nm=adcs_status.commanded_torque_nm,
             applied_torque_nm=adcs_status.applied_torque_nm,
+            disturbance_torque_nm=adcs_status.disturbance_torque_nm,
             wheel_speeds_rad_s=wheels.speeds_rad_s,
             wheel_saturated=adcs_status.wheel_saturated,
         ),

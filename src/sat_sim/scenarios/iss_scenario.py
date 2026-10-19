@@ -12,6 +12,7 @@ from sat_sim.adcs import (
     AttitudeController,
     AttitudeReference,
     AttitudeState,
+    GravityGradientTorque,
     ReactionWheelAssembly,
     RigidBody,
 )
@@ -125,6 +126,7 @@ class ISSScenario(Scenario):
         initial_battery_charge_wh: float = 500.0,
         solar_panel_peak_power_w: float = 100.0,
         adcs_idle_power_w: float = 8.0,
+        gravity_gradient_enabled: bool = True,
     ) -> None:
         super().__init__()
         self.timeout = timeout
@@ -149,7 +151,10 @@ class ISSScenario(Scenario):
         self.pcdu = PCDU(battery_capacity_wh, initial_battery_charge_wh)
         self.solar_panel = SolarPanel(solar_panel_peak_power_w)
         self.pcdu_system = PCDUSystem()
-        self.adcs_system = ADCSSystem()
+        disturbance_models = (
+            (GravityGradientTorque(),) if gravity_gradient_enabled else ()
+        )
+        self.adcs_system = ADCSSystem(disturbance_models=disturbance_models)
         self.adcs_power = PowerConsumer(adcs_idle_power_w)
         self.adcs_power_entity: Entity | None = None
         self._last_thermal_timestamp: datetime | None = None
