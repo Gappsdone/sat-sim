@@ -5,10 +5,14 @@ from math import cos, radians, sin, sqrt
 import pytest
 
 from sat_sim.adcs import (
+    ADCSSensorConfiguration,
+    ADCSSensorMeasurements,
     ADCSStatus,
     ADCSSystem,
     AerodynamicDragTorque,
     AttitudeController,
+    AttitudeEstimate,
+    AttitudeEstimatorConfiguration,
     AttitudeReference,
     AttitudeState,
     GravityGradientTorque,
@@ -39,6 +43,18 @@ def make_adcs_world() -> tuple[World, int, ADCSSystem]:
     world.add(entity, AttitudeState())
     world.add(entity, AttitudeReference())
     world.add(entity, AttitudeController(1.0, 4.0))
+    world.add(
+        entity,
+        ADCSSensorConfiguration(
+            gyro_bias_rad_s=(0.0, 0.0, 0.0),
+            gyro_noise_std_rad_s=0.0,
+            gyro_bias_drift_std_rad_s2=0.0,
+            vector_noise_std=0.0,
+        ),
+    )
+    world.add(entity, ADCSSensorMeasurements())
+    world.add(entity, AttitudeEstimate())
+    world.add(entity, AttitudeEstimatorConfiguration())
     world.add(entity, ReactionWheelAssembly(max_torque_nm=1.0))
     world.add(entity, ADCSStatus())
     system = ADCSSystem(max_substep_s=0.02)
@@ -239,6 +255,7 @@ def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
     reference = world.get(entity, AttitudeReference).quaternion_xyzw
     state.quaternion_xyzw = quaternion_multiply(reference, error_rotation)
     state.angular_velocity_body_rad_s = (0.0, 0.0, 0.0)
+    world.get(entity, AttitudeEstimate).quaternion_xyzw = state.quaternion_xyzw
 
     initial_status = system.update(world, entity, 0.02)
     initial_error = initial_status.pointing_error_deg
@@ -248,6 +265,53 @@ def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:
     assert initial_error > 9.0
     assert status.pointing_error_deg < 1.0
     assert sum(value * value for value in state.quaternion_xyzw) == pytest.approx(1.0)
+
+
+def test_sensor_suite_populates_measurements_and_normalized_estimate() -> None:
+    world, entity, system = make_adcs_world()
+
+    system.update(
+        world,
+        entity,
+        0.1,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    measurements = world.get(entity, ADCSSensorMeasurements)
+    estimate = world.get(entity, AttitudeEstimate)
+    assert measurements.gyro_valid
+    assert measurements.earth_sensor_valid
+    assert measurements.magnetometer_valid
+    assert measurements.nadir_direction_body is not None
+    assert measurements.magnetic_field_body_t is not None
+    assert sum(value * value for value in estimate.quaternion_xyzw) == pytest.approx(
+        1.0
+    )
+
+
+def test_invalid_sensors_are_excluded_from_estimator() -> None:
+    world, entity, system = make_adcs_world()
+    sensors = world.get(entity, ADCSSensorConfiguration)
+    sensors.gyro_valid = False
+    sensors.sun_sensor_valid = False
+    sensors.magnetometer_valid = False
+    sensors.earth_sensor_valid = False
+    estimate = world.get(entity, AttitudeEstimate)
+    initial = estimate.quaternion_xyzw
+
+    system.update(
+        world,
+        entity,
+        0.1,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    measurements = world.get(entity, ADCSSensorMeasurements)
+    assert estimate.quaternion_xyzw == pytest.approx(initial)
+    assert not measurements.gyro_valid
+    assert not measurements.sun_sensor_valid
+    assert not measurements.magnetometer_valid
+    assert not measurements.earth_sensor_valid
 
 
 @pytest.mark.parametrize(

@@ -122,6 +122,13 @@ Telemetry includes body rates, target quaternion, pointing error, commanded,
 applied, and disturbance torque, wheel speeds, and wheel saturation. The ADCS
 also contributes an 8 W default idle electrical load.
 
+The scenario installs an illustrative gyro, Sun sensor, magnetometer, and Earth
+vector sensor. Their bias, drift, noise, and validity can be configured through
+`ADCSSensorConfiguration`. A deterministic complementary estimator integrates
+gyro measurements and corrects the quaternion with whichever vector sensors
+are valid; the controller uses this estimate rather than truth state. Estimated
+attitude, measured body rate, and sensor-valid flags are included in telemetry.
+
 ## Thermal control system
 
 `ThermalControlSystem` provides nine paired temperature sensors and heaters by

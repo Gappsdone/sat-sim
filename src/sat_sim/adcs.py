@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from math import acos, ceil, isfinite, pi, sqrt
+from random import Random
 from typing import Protocol
 
 from sat_sim.attitude import (
@@ -98,6 +99,64 @@ class ADCSStatus:
     applied_torque_nm: Vector3 = (0.0, 0.0, 0.0)
     disturbance_torque_nm: Vector3 = (0.0, 0.0, 0.0)
     wheel_saturated: tuple[bool, bool, bool] = (False, False, False)
+
+
+@dataclass
+class ADCSSensorConfiguration:
+    """Noise, bias, and availability for illustrative ADCS sensors."""
+
+    gyro_bias_rad_s: Vector3 = (1.0e-5, -1.0e-5, 5.0e-6)
+    gyro_noise_std_rad_s: float = 2.0e-6
+    gyro_bias_drift_std_rad_s2: float = 1.0e-8
+    vector_noise_std: float = 1.0e-4
+    gyro_valid: bool = True
+    sun_sensor_valid: bool = True
+    magnetometer_valid: bool = True
+    earth_sensor_valid: bool = True
+
+    def __post_init__(self) -> None:
+        _require_vector("gyro_bias_rad_s", self.gyro_bias_rad_s)
+        _require_nonnegative("gyro_noise_std_rad_s", self.gyro_noise_std_rad_s)
+        _require_nonnegative(
+            "gyro_bias_drift_std_rad_s2", self.gyro_bias_drift_std_rad_s2
+        )
+        _require_nonnegative("vector_noise_std", self.vector_noise_std)
+
+
+@dataclass
+class ADCSSensorMeasurements:
+    """Latest body-frame sensor measurements and validity flags."""
+
+    angular_velocity_body_rad_s: Vector3 = (0.0, 0.0, 0.0)
+    sun_direction_body: Vector3 | None = None
+    magnetic_field_body_t: Vector3 | None = None
+    nadir_direction_body: Vector3 | None = None
+    gyro_valid: bool = False
+    sun_sensor_valid: bool = False
+    magnetometer_valid: bool = False
+    earth_sensor_valid: bool = False
+
+
+@dataclass
+class AttitudeEstimate:
+    """Estimated body-to-ECI attitude and body angular velocity."""
+
+    quaternion_xyzw: Quaternion = (0.0, 0.0, 0.0, 1.0)
+    angular_velocity_body_rad_s: Vector3 = (0.0, 0.0, 0.0)
+
+    def __post_init__(self) -> None:
+        self.quaternion_xyzw = normalize_quaternion(self.quaternion_xyzw)
+        _require_vector("angular_velocity_body_rad_s", self.angular_velocity_body_rad_s)
+
+
+@dataclass
+class AttitudeEstimatorConfiguration:
+    """Complementary-estimator vector correction gain."""
+
+    correction_gain_rad_s: float = 0.2
+
+    def __post_init__(self) -> None:
+        _require_nonnegative("correction_gain_rad_s", self.correction_gain_rad_s)
 
 
 class DisturbanceTorqueModel(Protocol):
@@ -299,10 +358,12 @@ class ADCSSystem:
         self,
         max_substep_s: float = 0.1,
         disturbance_models: Iterable[DisturbanceTorqueModel] = (),
+        random_seed: int = 0,
     ) -> None:
         _require_positive("max_substep_s", max_substep_s)
         self.max_substep_s = float(max_substep_s)
         self.disturbance_models = tuple(disturbance_models)
+        self.random = Random(random_seed)
 
     def initialize(self, world: World, entity: Entity) -> None:
         """Initialize truth and reference attitude to the current nadir frame."""
@@ -318,6 +379,10 @@ class ADCSSystem:
             reference.angular_velocity_eci_rad_s, state.quaternion_xyzw
         )
         world.get(entity, SpacecraftAttitude).set_quaternion(state.quaternion_xyzw)
+        if world.has(entity, AttitudeEstimate):
+            estimate = world.get(entity, AttitudeEstimate)
+            estimate.quaternion_xyzw = state.quaternion_xyzw
+            estimate.angular_velocity_body_rad_s = state.angular_velocity_body_rad_s
 
     def update(
         self,
@@ -377,18 +442,29 @@ class ADCSSystem:
         wheels = world.get(entity, ReactionWheelAssembly)
         position = world.get(entity, ECIPosition)
         velocity = world.get(entity, ECIVelocity)
+        estimate = self._update_estimator(
+            world, entity, state, position, timestamp, delta_time
+        )
+        control_quaternion = (
+            estimate.quaternion_xyzw if estimate is not None else state.quaternion_xyzw
+        )
+        control_rate = (
+            estimate.angular_velocity_body_rad_s
+            if estimate is not None
+            else state.angular_velocity_body_rad_s
+        )
         error = quaternion_multiply(
-            quaternion_conjugate(state.quaternion_xyzw), reference.quaternion_xyzw
+            quaternion_conjugate(control_quaternion), reference.quaternion_xyzw
         )
         if error[3] < 0.0:
             error = tuple(-value for value in error)  # type: ignore[assignment]
         desired_rate = _eci_to_body(
-            reference.angular_velocity_eci_rad_s, state.quaternion_xyzw
+            reference.angular_velocity_eci_rad_s, control_quaternion
         )
         commanded = tuple(
             2.0 * controller.proportional_gain_nm * error[index]
             + controller.derivative_gain_nms
-            * (desired_rate[index] - state.angular_velocity_body_rad_s[index])
+            * (desired_rate[index] - control_rate[index])
             for index in range(3)
         )
         applied, saturated = apply_reaction_wheels(wheels, commanded, delta_time)
@@ -428,6 +504,135 @@ class ADCSSystem:
         status.disturbance_torque_nm = disturbance  # type: ignore[assignment]
         status.wheel_saturated = saturated
 
+    def _update_estimator(
+        self,
+        world: World,
+        entity: Entity,
+        truth: AttitudeState,
+        position: ECIPosition,
+        timestamp: datetime | None,
+        delta_time: float,
+    ) -> AttitudeEstimate | None:
+        required = (
+            ADCSSensorConfiguration,
+            ADCSSensorMeasurements,
+            AttitudeEstimate,
+            AttitudeEstimatorConfiguration,
+        )
+        if not all(world.has(entity, component) for component in required):
+            return None
+        sensors = world.get(entity, ADCSSensorConfiguration)
+        measurements = world.get(entity, ADCSSensorMeasurements)
+        estimate = world.get(entity, AttitudeEstimate)
+        estimator = world.get(entity, AttitudeEstimatorConfiguration)
+        if sensors.gyro_valid:
+            sensors.gyro_bias_rad_s = tuple(
+                sensors.gyro_bias_rad_s[index]
+                + self.random.gauss(0.0, sensors.gyro_bias_drift_std_rad_s2)
+                * delta_time
+                for index in range(3)
+            )  # type: ignore[assignment]
+            measurements.angular_velocity_body_rad_s = tuple(
+                truth.angular_velocity_body_rad_s[index]
+                + sensors.gyro_bias_rad_s[index]
+                + self.random.gauss(0.0, sensors.gyro_noise_std_rad_s)
+                for index in range(3)
+            )  # type: ignore[assignment]
+        measurements.gyro_valid = sensors.gyro_valid
+
+        position_vector = (position.x, position.y, position.z)
+        radius = sqrt(dot(position_vector, position_vector))
+        nadir_eci: Vector3 = tuple(-value / radius for value in position_vector)  # type: ignore[assignment]
+        measurements.nadir_direction_body = (
+            _noisy_unit_vector(
+                _eci_to_body(nadir_eci, truth.quaternion_xyzw),
+                sensors.vector_noise_std,
+                self.random,
+            )
+            if sensors.earth_sensor_valid
+            else None
+        )
+        measurements.earth_sensor_valid = measurements.nadir_direction_body is not None
+
+        field_eci = earth_magnetic_field_eci(position)
+        measurements.magnetic_field_body_t = (
+            _noisy_vector(
+                _eci_to_body(field_eci, truth.quaternion_xyzw),
+                sensors.vector_noise_std * sqrt(dot(field_eci, field_eci)),
+                self.random,
+            )
+            if sensors.magnetometer_valid
+            else None
+        )
+        measurements.magnetometer_valid = measurements.magnetic_field_body_t is not None
+
+        sun_eci = solar_direction_eci(timestamp) if timestamp is not None else None
+        sun_available = (
+            sensors.sun_sensor_valid
+            and sun_eci is not None
+            and satellite_is_sunlit(position_vector, timestamp)  # type: ignore[arg-type]
+        )
+        measurements.sun_direction_body = (
+            _noisy_unit_vector(
+                _eci_to_body(sun_eci, truth.quaternion_xyzw),  # type: ignore[arg-type]
+                sensors.vector_noise_std,
+                self.random,
+            )
+            if sun_available
+            else None
+        )
+        measurements.sun_sensor_valid = measurements.sun_direction_body is not None
+
+        rate = (
+            measurements.angular_velocity_body_rad_s
+            if measurements.gyro_valid
+            else estimate.angular_velocity_body_rad_s
+        )
+        correction = [0.0, 0.0, 0.0]
+        vector_pairs: list[tuple[Vector3, Vector3]] = []
+        if measurements.nadir_direction_body is not None:
+            vector_pairs.append((nadir_eci, measurements.nadir_direction_body))
+        if measurements.magnetic_field_body_t is not None:
+            field_magnitude = sqrt(dot(field_eci, field_eci))
+            vector_pairs.append(
+                (
+                    tuple(value / field_magnitude for value in field_eci),  # type: ignore[arg-type]
+                    tuple(
+                        value
+                        / sqrt(
+                            dot(
+                                measurements.magnetic_field_body_t,
+                                measurements.magnetic_field_body_t,
+                            )
+                        )
+                        for value in measurements.magnetic_field_body_t
+                    ),
+                )
+            )
+        if sun_eci is not None and measurements.sun_direction_body is not None:
+            vector_pairs.append((sun_eci, measurements.sun_direction_body))
+        for inertial, measured_body in vector_pairs:
+            predicted_body = _eci_to_body(inertial, estimate.quaternion_xyzw)
+            vector_error = cross(measured_body, predicted_body)
+            for index in range(3):
+                correction[index] += vector_error[index]
+        if vector_pairs:
+            correction = [value / len(vector_pairs) for value in correction]
+        estimate.angular_velocity_body_rad_s = rate
+        corrected_rate: Vector3 = tuple(
+            rate[index] + estimator.correction_gain_rad_s * correction[index]
+            for index in range(3)
+        )  # type: ignore[assignment]
+        omega: Quaternion = (*corrected_rate, 0.0)
+        derivative = quaternion_multiply(estimate.quaternion_xyzw, omega)
+        estimate.quaternion_xyzw = normalize_quaternion(
+            tuple(
+                estimate.quaternion_xyzw[index] + 0.5 * derivative[index] * delta_time
+                for index in range(4)
+            )  # type: ignore[arg-type]
+        )
+        return estimate
+
 
 def apply_reaction_wheels(
     wheels: ReactionWheelAssembly,
@@ -456,6 +661,18 @@ def apply_reaction_wheels(
 def _eci_to_body(vector_eci: Vector3, quaternion_xyzw: Quaternion) -> Vector3:
     axes = quaternion_to_axes(quaternion_xyzw)
     return tuple(dot(vector_eci, axis) for axis in axes)  # type: ignore[return-value]
+
+
+def _noisy_vector(vector: Vector3, noise_std: float, random: Random) -> Vector3:
+    return tuple(value + random.gauss(0.0, noise_std) for value in vector)  # type: ignore[return-value]
+
+
+def _noisy_unit_vector(vector: Vector3, noise_std: float, random: Random) -> Vector3:
+    noisy = _noisy_vector(vector, noise_std, random)
+    magnitude = sqrt(dot(noisy, noisy))
+    if magnitude == 0.0:
+        return vector
+    return tuple(value / magnitude for value in noisy)  # type: ignore[return-value]
 
 
 def _require_vector(name: str, values: Vector3, *, positive: bool = False) -> None:

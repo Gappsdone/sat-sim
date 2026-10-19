@@ -7,10 +7,14 @@ from datetime import datetime
 from time import sleep
 
 from sat_sim.adcs import (
+    ADCSSensorConfiguration,
+    ADCSSensorMeasurements,
     ADCSStatus,
     ADCSSystem,
     AerodynamicDragTorque,
     AttitudeController,
+    AttitudeEstimate,
+    AttitudeEstimatorConfiguration,
     AttitudeReference,
     AttitudeState,
     GravityGradientTorque,
@@ -193,6 +197,10 @@ class ISSScenario(Scenario):
         self.world.add(self.entity, AttitudeState())
         self.world.add(self.entity, AttitudeReference())
         self.world.add(self.entity, AttitudeController())
+        self.world.add(self.entity, ADCSSensorConfiguration())
+        self.world.add(self.entity, ADCSSensorMeasurements())
+        self.world.add(self.entity, AttitudeEstimate())
+        self.world.add(self.entity, AttitudeEstimatorConfiguration())
         self.world.add(self.entity, ReactionWheelAssembly())
         self.world.add(self.entity, ADCSStatus())
         self.world.add(self.entity, self.pcdu)

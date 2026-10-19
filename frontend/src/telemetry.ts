@@ -31,6 +31,9 @@ export interface EntityTelemetry {
     disturbanceTorqueNm: [number, number, number];
     wheelSpeedsRadS: [number, number, number];
     wheelSaturated: [boolean, boolean, boolean];
+    estimatedQuaternionXyzw: [number, number, number, number];
+    measuredAngularVelocityBodyRadS: [number, number, number];
+    sensorValid: Record<string, boolean>;
   };
   illumination: {
     sunlit: boolean | null;

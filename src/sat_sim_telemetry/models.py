@@ -43,6 +43,9 @@ class ADCSTelemetry(WireModel):
     disturbance_torque_nm: tuple[float, float, float]
     wheel_speeds_rad_s: tuple[float, float, float]
     wheel_saturated: tuple[bool, bool, bool]
+    estimated_quaternion_xyzw: tuple[float, float, float, float]
+    measured_angular_velocity_body_rad_s: tuple[float, float, float]
+    sensor_valid: dict[str, bool]
 
 
 class IlluminationTelemetry(WireModel):
