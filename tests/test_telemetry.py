@@ -58,10 +58,10 @@ def test_snapshot_contains_cesium_ready_orbit_attitude_and_subsystems(
     assert frame.schema_version == 1
     assert frame.sequence == 7
     assert frame.time == state.timestamp
-    assert iss.position.frame == "ECI"
+    assert iss.position.frame == "TEME"
     assert iss.position.unit == "m"
     assert iss.velocity.unit == "m/s"
-    assert iss.attitude.frame == "BODY_TO_ECI"
+    assert iss.attitude.frame == "BODY_TO_TEME"
     assert sum(value**2 for value in iss.attitude.value) == pytest.approx(1.0)
     assert iss.adcs.pointing_error_deg == pytest.approx(state.pointing_error_deg)
     assert iss.adcs.wheel_speeds_rad_s == pytest.approx(state.wheel_speeds_rad_s)
@@ -119,7 +119,7 @@ def test_description_separates_static_geometry_from_streamed_state(
         description.entity_component_values["iss"]["ADCSModeState"]["current"]
         == "NADIR_POINTING"
     )
-    assert description.coordinate_frame == "ECI"
+    assert description.coordinate_frame == "TEME"
     assert description.solar_panel_peak_power_w == 100.0
     assert len(description.thermal_channels) == 9
 
@@ -166,7 +166,7 @@ def test_api_serves_metadata_latest_snapshot_and_websocket(
         assert client.get("/api/v1/state").status_code == 503
         metadata = client.get("/api/v1/scenario")
         assert metadata.status_code == 200
-        assert metadata.json()["coordinateFrame"] == "ECI"
+        assert metadata.json()["coordinateFrame"] == "TEME"
         assert (
             metadata.json()["entityComponentValues"]["iss"]["PCDU"]["capacity_wh"]
             == 1_000.0
@@ -191,7 +191,7 @@ def test_api_serves_metadata_latest_snapshot_and_websocket(
         with client.websocket_connect("/api/v1/telemetry") as websocket:
             message = websocket.receive_json()
             assert message["sequence"] == 0
-            assert message["entities"]["iss"]["position"]["frame"] == "ECI"
+            assert message["entities"]["iss"]["position"]["frame"] == "TEME"
 
 
 def test_store_rejects_stale_frames_and_drops_slow_subscriber_backlog(

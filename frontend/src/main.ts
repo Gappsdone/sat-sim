@@ -15,11 +15,11 @@ import {
   Quaternion,
   SampledPositionProperty,
   SampledProperty,
-  Transforms,
   Viewer,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./styles.css";
+import { temeToFixedMatrix } from "./referenceFrames";
 import {
   componentLabel,
   illuminationLabel,
@@ -68,7 +68,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <div id="component-list" class="component-list" aria-live="polite"><p class="components-status">Loading component inventory…</p></div>
         </section>
       </div>
-      <footer><span>ECI LIVE TELEMETRY</span><span id="sequence">SEQ —</span></footer>
+      <footer><span>TEME LIVE TELEMETRY</span><span id="sequence">SEQ —</span></footer>
     </aside>
   </main>`;
 
@@ -190,14 +190,10 @@ viewer.entities.add(iss);
 let hasFramed = false;
 let reconnectDelay = 1_000;
 
-function fixedTransform(time: JulianDate): Matrix3 {
-  return Transforms.computeIcrfToFixedMatrix(time) ?? Matrix3.IDENTITY;
-}
-
 function ingest(frame: TelemetryFrame): void {
   const state = frame.entities.iss;
   const time = JulianDate.fromIso8601(frame.time);
-  const transform = fixedTransform(time);
+  const transform = temeToFixedMatrix(time);
   const eci = Cartesian3.fromArray(state.position.value);
   const fixed = Matrix3.multiplyByVector(transform, eci, new Cartesian3());
   positions.addSample(time, fixed);

@@ -102,12 +102,12 @@ def snapshot_iss(
     )
     entity = EntityTelemetry(
         position=Vector3(
-            frame="ECI",
+            frame="TEME",
             unit="m",
             value=(state.position.x, state.position.y, state.position.z),
         ),
         velocity=Vector3(
-            frame="ECI",
+            frame="TEME",
             unit="m/s",
             value=(state.velocity.x, state.velocity.y, state.velocity.z),
         ),

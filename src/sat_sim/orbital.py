@@ -26,8 +26,10 @@ def propagate_orbital(
 ) -> tuple[ECIPosition, ECIVelocity]:
     """Propagate an orbital object and convert pyorbital output to SI units.
 
-    pyorbital returns ECI position in kilometers and ECI velocity in kilometers
-    per second. The adapter stores both components in meters-based SI units.
+    PyOrbital's SGP4 implementation returns TEME position in kilometers and TEME
+    velocity in kilometers per second. The adapter stores both components in
+    meters-based SI units. The component class names retain their legacy ECI
+    terminology for compatibility.
     """
     position_km, velocity_km_per_second = orbital.get_position(
         timestamp,

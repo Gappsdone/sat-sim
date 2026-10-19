@@ -249,7 +249,7 @@ versioned Pydantic wire models and a FastAPI application with:
 - `GET /api/v1/state` for the latest complete state snapshot; and
 - `WS /api/v1/telemetry` for timestamped state frames.
 
-Frames contain ECI position and velocity, a normalized body-to-ECI quaternion,
+Frames contain TEME position and velocity, a normalized body-to-TEME quaternion,
 Sun/eclipse state, PCDU telemetry, and all thermal channels. Field names use
 lower camel case on the wire. The broadcaster keeps only a small bounded queue
 per client, so a slow renderer receives recent simulation state instead of
@@ -298,15 +298,15 @@ app = create_app(store, lambda: describe_iss_scenario(scenario))
 ```
 
 Use `ISSTelemetryPublisher` to step the scenario and publish each resulting
-frame. A Cesium client can feed the timestamped ECI samples into a
+frame. A Cesium client can feed the timestamped TEME samples into a
 `SampledPositionProperty` and use the supplied quaternion for orientation.
 
 ## Cesium frontend
 
 The separate `frontend` package renders the live ISS position and orbit trail
 over Esri World Imagery on a Cesium globe, with source attribution displayed on
-the map. It transforms timestamped ECI samples into Cesium's fixed frame,
-applies the streamed body-to-ECI attitude, and shows eclipse, battery,
+the map. It transforms timestamped TEME samples into Cesium's pseudo-fixed frame,
+applies the streamed body-to-TEME attitude, and shows eclipse, battery,
 generation, load, ADCS pointing error, reaction-wheel speed, and all nine
 thermal channels in a responsive systems panel.
 
@@ -378,12 +378,13 @@ for entity, position, velocity in world.query(Position, Velocity):
     print(entity, position, velocity)
 ```
 
-## pyorbital ECI adapter
+## PyOrbital TEME adapter
 
 The orbital adapter accepts an existing `pyorbital.Orbital` object. It does not
-load TLE data or convert coordinate frames. Pyorbital's propagated ECI output is
-converted from kilometers and kilometers per second into meters and meters per
-second, then stored in `ECIPosition` and `ECIVelocity` components.
+load TLE data or convert coordinate frames. PyOrbital's propagated SGP4 output is
+in the TEME frame and converted from kilometers and kilometers per second into
+meters and meters per second, then stored in the legacy-named `ECIPosition` and
+`ECIVelocity` components.
 
 ```python
 from datetime import datetime, timezone

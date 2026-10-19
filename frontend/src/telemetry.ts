@@ -1,5 +1,5 @@
 export interface Vector3Telemetry {
-  frame: "ECI";
+  frame: "TEME";
   unit: string;
   value: [number, number, number];
 }
@@ -17,7 +17,7 @@ export interface EntityTelemetry {
   position: Vector3Telemetry;
   velocity: Vector3Telemetry;
   attitude: {
-    frame: "BODY_TO_ECI";
+    frame: "BODY_TO_TEME";
     representation: "quaternion";
     order: "xyzw";
     value: [number, number, number, number];

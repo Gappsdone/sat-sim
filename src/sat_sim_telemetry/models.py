@@ -28,7 +28,7 @@ class Vector3(WireModel):
 
 
 class AttitudeTelemetry(WireModel):
-    frame: Literal["BODY_TO_ECI"] = "BODY_TO_ECI"
+    frame: Literal["BODY_TO_TEME"] = "BODY_TO_TEME"
     representation: Literal["quaternion"] = "quaternion"
     order: Literal["xyzw"] = "xyzw"
     value: tuple[float, float, float, float]
@@ -110,10 +110,10 @@ class ScenarioDescription(WireModel):
     entities: tuple[str, ...]
     entity_components: dict[str, tuple[str, ...]]
     entity_component_values: dict[str, dict[str, dict[str, JsonValue]]]
-    coordinate_frame: Literal["ECI"] = "ECI"
+    coordinate_frame: Literal["TEME"] = "TEME"
     position_unit: Literal["m"] = "m"
     velocity_unit: Literal["m/s"] = "m/s"
-    attitude_convention: str = "body-to-ECI quaternion in [x, y, z, w] order"
+    attitude_convention: str = "body-to-TEME quaternion in [x, y, z, w] order"
     battery_capacity_wh: float
     solar_panel_peak_power_w: float
     solar_panel_normal_body: tuple[float, float, float]
