@@ -1,6 +1,6 @@
 # sat-sim
 
-A small, runnable Python starter application with a simple entity-component-system (ECS).
+A runnable spacecraft simulator with a simple entity-component-system (ECS).
 
 ## Requirements
 
@@ -20,7 +20,7 @@ and `pyproj` transitively for its calculations.
 
 ## Run
 
-Run the starter application:
+Start the live ISS simulation with the command-line interface:
 
 ```shell
 uv run python -m sat_sim
@@ -32,13 +32,16 @@ or with the installed console script:
 uv run sat-sim
 ```
 
-Run the live ISS scenario. It fetches the current ISS TLE from CelesTrak,
-then prints the propagated ECI position, velocity, and nine-channel thermal
-telemetry once per step:
+Both commands fetch the current ISS TLE from CelesTrak, then print the
+propagated ECI position, velocity, ADCS state, power state, and nine-channel
+thermal telemetry once per step. Configure the scheduler interval and TLE
+request timeout when needed:
 
 ```shell
-uv run python -m sat_sim.scenarios.iss_scenario
+uv run sat-sim --interval 0.5 --tle-timeout 5
 ```
+
+Run `uv run sat-sim --help` for the complete CLI reference.
 
 The ISS scenario initializes nine heaters and paired sensors in a 3x3 grid,
 automatically applies PID control when a sensor falls below the 22 °C threshold,
