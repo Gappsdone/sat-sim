@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from math import cos, radians, sin, sqrt
 
 import pytest
@@ -12,7 +13,9 @@ from sat_sim.adcs import (
     AttitudeState,
     GravityGradientTorque,
     ReactionWheelAssembly,
+    ResidualMagneticDipoleTorque,
     RigidBody,
+    SolarRadiationPressureTorque,
     apply_reaction_wheels,
 )
 from sat_sim.attitude import (
@@ -23,6 +26,7 @@ from sat_sim.attitude import (
 )
 from sat_sim.ecs import World
 from sat_sim.position import ECIPosition, ECIVelocity
+from sat_sim.solar import EARTH_RADIUS_METERS, solar_direction_eci
 
 
 def make_adcs_world() -> tuple[World, int, ADCSSystem]:
@@ -90,6 +94,7 @@ def test_gravity_gradient_is_zero_along_a_principal_axis() -> None:
         state,
         ECIPosition(7_000_000.0, 0.0, 0.0),
         ECIVelocity(0.0, 0.0, 0.0),
+        None,
     )
 
     assert torque == pytest.approx((0.0, 0.0, 0.0))
@@ -107,6 +112,7 @@ def test_gravity_gradient_matches_point_mass_equation() -> None:
         state,
         ECIPosition(component, component, 0.0),
         ECIVelocity(0.0, 0.0, 0.0),
+        None,
     )
 
     assert torque == pytest.approx((0.0, 0.0, 3.0 / 16.0))
@@ -148,6 +154,7 @@ def test_aerodynamic_drag_torque_matches_force_and_lever_arm() -> None:
         AttitudeState(),
         ECIPosition(1.0, 0.0, 0.0),
         ECIVelocity(2.0, 0.0, 0.0),
+        None,
     )
 
     assert torque == pytest.approx((0.0, 0.0, 4.0))
@@ -167,9 +174,61 @@ def test_aerodynamic_drag_accounts_for_corotating_atmosphere() -> None:
         AttitudeState(),
         ECIPosition(1.0, 0.0, 0.0),
         ECIVelocity(0.0, 2.0, 0.0),
+        None,
     )
 
     assert torque == (0.0, 0.0, 0.0)
+
+
+def test_solar_radiation_pressure_torque_matches_force_and_lever_arm() -> None:
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    sun = solar_direction_eci(timestamp)
+    model = SolarRadiationPressureTorque(
+        pressure_n_m2=2.0,
+        reflectivity_coefficient=3.0,
+        reference_area_m2=4.0,
+        center_of_pressure_body_m=(0.0, 0.0, 1.0),
+    )
+
+    torque = model.torque_body_nm(
+        RigidBody(),
+        AttitudeState(),
+        ECIPosition(*(7_000_000.0 * value for value in sun)),
+        ECIVelocity(0.0, 0.0, 0.0),
+        timestamp,
+    )
+
+    assert torque == pytest.approx((24.0 * sun[1], -24.0 * sun[0], 0.0))
+
+
+def test_solar_radiation_pressure_is_zero_in_eclipse() -> None:
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    sun = solar_direction_eci(timestamp)
+    model = SolarRadiationPressureTorque()
+
+    torque = model.torque_body_nm(
+        RigidBody(),
+        AttitudeState(),
+        ECIPosition(*(-7_000_000.0 * value for value in sun)),
+        ECIVelocity(0.0, 0.0, 0.0),
+        timestamp,
+    )
+
+    assert torque == (0.0, 0.0, 0.0)
+
+
+def test_residual_magnetic_dipole_torque_at_magnetic_equator() -> None:
+    model = ResidualMagneticDipoleTorque((0.05, 0.0, 0.0))
+
+    torque = model.torque_body_nm(
+        RigidBody(),
+        AttitudeState(),
+        ECIPosition(EARTH_RADIUS_METERS, 0.0, 0.0),
+        ECIVelocity(0.0, 0.0, 0.0),
+        None,
+    )
+
+    assert torque == pytest.approx((0.0, 0.05 * 3.12e-5, 0.0))
 
 
 def test_nadir_controller_reduces_ten_degree_pointing_error() -> None:

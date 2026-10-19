@@ -106,6 +106,13 @@ force, transforms that force into body axes, and applies it at a configurable
 center-of-pressure offset. Its default density, area, and geometry are
 illustrative rather than an ISS atmosphere or structural model.
 
+Solar-radiation-pressure and residual-magnetic-dipole torques complete the
+initial disturbance set. SRP uses the existing Sun/eclipse model and a fixed
+body-frame center-of-pressure offset. The magnetic model uses a centered axial
+Earth dipole and a configurable fixed spacecraft residual dipole. Disable them
+with `solar_radiation_pressure_enabled=False` and
+`residual_magnetic_dipole_enabled=False`, respectively.
+
 The scenario owns ADCS scheduling: orbit propagation, reference/control,
 rigid-body integration, thermal dynamics, and finally electrical accounting.
 Thermal and power systems consume the completed attitude without changing it.

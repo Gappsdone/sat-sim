@@ -15,7 +15,9 @@ from sat_sim.adcs import (
     AttitudeState,
     GravityGradientTorque,
     ReactionWheelAssembly,
+    ResidualMagneticDipoleTorque,
     RigidBody,
+    SolarRadiationPressureTorque,
 )
 from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.ecs import Entity
@@ -129,6 +131,8 @@ class ISSScenario(Scenario):
         adcs_idle_power_w: float = 8.0,
         gravity_gradient_enabled: bool = True,
         aerodynamic_drag_enabled: bool = True,
+        solar_radiation_pressure_enabled: bool = True,
+        residual_magnetic_dipole_enabled: bool = True,
     ) -> None:
         super().__init__()
         self.timeout = timeout
@@ -158,6 +162,11 @@ class ISSScenario(Scenario):
             for enabled, model in (
                 (gravity_gradient_enabled, GravityGradientTorque()),
                 (aerodynamic_drag_enabled, AerodynamicDragTorque()),
+                (solar_radiation_pressure_enabled, SolarRadiationPressureTorque()),
+                (
+                    residual_magnetic_dipole_enabled,
+                    ResidualMagneticDipoleTorque(),
+                ),
             )
             if enabled
         )
@@ -216,7 +225,9 @@ class ISSScenario(Scenario):
         if previous_timestamp is not None:
             delta_time = (timestamp - previous_timestamp).total_seconds()
             if delta_time > 0:
-                self.adcs_system.update(self.world, self.entity, delta_time)
+                self.adcs_system.update(
+                    self.world, self.entity, delta_time, timestamp=timestamp
+                )
                 self.tcs.advance(delta_time, timestamp, update_attitude=False)
                 self.pcdu_system.update(self.world, self.entity, delta_time, timestamp)
         self._last_thermal_timestamp = timestamp

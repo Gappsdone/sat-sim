@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from math import acos, ceil, isfinite, pi, sqrt
 from typing import Protocol
 
@@ -20,9 +21,12 @@ from sat_sim.attitude import (
 )
 from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition, ECIVelocity
+from sat_sim.solar import EARTH_RADIUS_METERS, satellite_is_sunlit, solar_direction_eci
 
 EARTH_GRAVITATIONAL_PARAMETER_M3_S2 = 3.986004418e14
 EARTH_ANGULAR_VELOCITY_RAD_S = 7.2921159e-5
+SOLAR_RADIATION_PRESSURE_N_M2 = 4.56e-6
+EARTH_EQUATORIAL_MAGNETIC_FIELD_T = 3.12e-5
 
 
 @dataclass
@@ -105,6 +109,7 @@ class DisturbanceTorqueModel(Protocol):
         state: AttitudeState,
         position: ECIPosition,
         velocity: ECIVelocity,
+        timestamp: datetime | None,
     ) -> Vector3: ...
 
 
@@ -125,9 +130,10 @@ class GravityGradientTorque:
         state: AttitudeState,
         position: ECIPosition,
         velocity: ECIVelocity,
+        timestamp: datetime | None,
     ) -> Vector3:
         """Return ``3 mu / r^3 * (r_hat cross I r_hat)`` in body axes."""
-        del velocity
+        del velocity, timestamp
         position_eci = (position.x, position.y, position.z)
         radius = sqrt(dot(position_eci, position_eci))
         if not isfinite(radius) or radius <= 0.0:
@@ -172,9 +178,10 @@ class AerodynamicDragTorque:
         state: AttitudeState,
         position: ECIPosition,
         velocity: ECIVelocity,
+        timestamp: datetime | None,
     ) -> Vector3:
         """Return center-of-pressure lever arm crossed with body-frame drag."""
-        del body
+        del body, timestamp
         atmosphere_velocity_eci = (
             -self.atmosphere_angular_velocity_rad_s * position.y,
             self.atmosphere_angular_velocity_rad_s * position.x,
@@ -204,6 +211,87 @@ class AerodynamicDragTorque:
         return cross(self.center_of_pressure_body_m, force_body)
 
 
+@dataclass(frozen=True)
+class SolarRadiationPressureTorque:
+    """Cannonball solar-radiation-pressure torque at a fixed body lever arm."""
+
+    pressure_n_m2: float = SOLAR_RADIATION_PRESSURE_N_M2
+    reflectivity_coefficient: float = 1.5
+    reference_area_m2: float = 10.0
+    center_of_pressure_body_m: Vector3 = (0.0, 0.0, 0.5)
+
+    def __post_init__(self) -> None:
+        _require_nonnegative("pressure_n_m2", self.pressure_n_m2)
+        _require_nonnegative("reflectivity_coefficient", self.reflectivity_coefficient)
+        _require_positive("reference_area_m2", self.reference_area_m2)
+        _require_vector("center_of_pressure_body_m", self.center_of_pressure_body_m)
+
+    def torque_body_nm(
+        self,
+        body: RigidBody,
+        state: AttitudeState,
+        position: ECIPosition,
+        velocity: ECIVelocity,
+        timestamp: datetime | None,
+    ) -> Vector3:
+        """Return zero in eclipse or without time, otherwise pressure torque."""
+        del body, velocity
+        if timestamp is None:
+            return (0.0, 0.0, 0.0)
+        position_eci = (position.x, position.y, position.z)
+        if not satellite_is_sunlit(position_eci, timestamp):
+            return (0.0, 0.0, 0.0)
+        sun_direction = solar_direction_eci(timestamp)
+        force_magnitude = (
+            self.pressure_n_m2 * self.reflectivity_coefficient * self.reference_area_m2
+        )
+        force_body = _eci_to_body(
+            tuple(-force_magnitude * value for value in sun_direction),  # type: ignore[arg-type]
+            state.quaternion_xyzw,
+        )
+        return cross(self.center_of_pressure_body_m, force_body)
+
+
+def earth_magnetic_field_eci(position: ECIPosition) -> Vector3:
+    """Approximate Earth's field as an axial centered dipole in ECI."""
+    position_eci = (position.x, position.y, position.z)
+    radius = sqrt(dot(position_eci, position_eci))
+    if not isfinite(radius) or radius <= 0.0:
+        raise ValueError("position radius must be finite and greater than zero")
+    radial = tuple(value / radius for value in position_eci)
+    dipole_axis: Vector3 = (0.0, 0.0, 1.0)
+    projection = dot(dipole_axis, radial)  # type: ignore[arg-type]
+    scale = EARTH_EQUATORIAL_MAGNETIC_FIELD_T * (EARTH_RADIUS_METERS / radius) ** 3
+    return tuple(
+        scale * (3.0 * projection * radial[index] - dipole_axis[index])
+        for index in range(3)
+    )  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class ResidualMagneticDipoleTorque:
+    """Torque from a fixed spacecraft residual dipole in Earth's field."""
+
+    residual_dipole_body_a_m2: Vector3 = (0.05, 0.0, 0.0)
+
+    def __post_init__(self) -> None:
+        _require_vector("residual_dipole_body_a_m2", self.residual_dipole_body_a_m2)
+
+    def torque_body_nm(
+        self,
+        body: RigidBody,
+        state: AttitudeState,
+        position: ECIPosition,
+        velocity: ECIVelocity,
+        timestamp: datetime | None,
+    ) -> Vector3:
+        del body, velocity, timestamp
+        field_body = _eci_to_body(
+            earth_magnetic_field_eci(position), state.quaternion_xyzw
+        )
+        return cross(self.residual_dipole_body_a_m2, field_body)
+
+
 class ADCSSystem:
     """Track the orbital nadir frame through limited reaction-wheel torque."""
 
@@ -231,7 +319,13 @@ class ADCSSystem:
         )
         world.get(entity, SpacecraftAttitude).set_quaternion(state.quaternion_xyzw)
 
-    def update(self, world: World, entity: Entity, delta_time: float) -> ADCSStatus:
+    def update(
+        self,
+        world: World,
+        entity: Entity,
+        delta_time: float,
+        timestamp: datetime | None = None,
+    ) -> ADCSStatus:
         """Advance controller, wheels, and rigid-body truth state."""
         _require_positive("delta_time", delta_time)
         reference = self._reference(world, entity)
@@ -244,7 +338,7 @@ class ADCSSystem:
         substep = delta_time / steps
         status = world.get(entity, ADCSStatus)
         for _ in range(steps):
-            self._substep(world, entity, reference, status, substep)
+            self._substep(world, entity, reference, status, substep, timestamp)
         state = world.get(entity, AttitudeState)
         world.get(entity, SpacecraftAttitude).set_quaternion(state.quaternion_xyzw)
         return status
@@ -275,6 +369,7 @@ class ADCSSystem:
         reference: AttitudeReference,
         status: ADCSStatus,
         delta_time: float,
+        timestamp: datetime | None,
     ) -> None:
         body = world.get(entity, RigidBody)
         state = world.get(entity, AttitudeState)
@@ -298,7 +393,7 @@ class ADCSSystem:
         )
         applied, saturated = apply_reaction_wheels(wheels, commanded, delta_time)
         model_torques = tuple(
-            model.torque_body_nm(body, state, position, velocity)
+            model.torque_body_nm(body, state, position, velocity, timestamp)
             for model in self.disturbance_models
         )
         disturbance = tuple(
