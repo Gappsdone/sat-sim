@@ -70,6 +70,20 @@ class World:
         self._require_entity(entity)
         return entity in self._components.get(component_type, {})
 
+    def component_types(self, entity: Entity) -> tuple[type[object], ...]:
+        """Return an entity's component types ordered by class name."""
+        self._require_entity(entity)
+        return tuple(
+            sorted(
+                (
+                    component_type
+                    for component_type, components in self._components.items()
+                    if entity in components
+                ),
+                key=lambda component_type: component_type.__name__,
+            )
+        )
+
     def query(self, *component_types: Any) -> Iterator[Any]:
         """Yield matching entities followed by their components.
 

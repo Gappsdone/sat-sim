@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { illuminationLabel, temperatureRange, telemetryWebSocketUrl } from "./telemetry";
+import { componentLabel, illuminationLabel, temperatureRange, telemetryWebSocketUrl } from "./telemetry";
 
 describe("telemetry presentation", () => {
   it("selects the WebSocket scheme from the page URL", () => {
@@ -17,5 +17,11 @@ describe("telemetry presentation", () => {
     const channel = (temperatureC: number) => ({ id: 0, temperatureC, heaterOutput: 0, heaterPowerW: 0, heaterRatedPowerW: 10, setpointC: 22 });
     expect(temperatureRange([channel(20.14), channel(23.76)])).toBe("20.1–23.8 °C");
     expect(temperatureRange([])).toBe("—");
+  });
+
+  it("formats ECS component class names for display", () => {
+    expect(componentLabel("ECIPosition")).toBe("ECI Position");
+    expect(componentLabel("ADCSSensorConfiguration")).toBe("ADCS Sensor Configuration");
+    expect(componentLabel("ReactionWheelAssembly")).toBe("Reaction Wheel Assembly");
   });
 });

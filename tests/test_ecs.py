@@ -48,6 +48,15 @@ def test_query_returns_matching_components_in_requested_order() -> None:
     assert list(world.query(Name, Health)) == [(entity, name, health)]
 
 
+def test_component_types_returns_sorted_entity_inventory() -> None:
+    world = World()
+    entity = world.create()
+    world.add(entity, Name("ISS"))
+    world.add(entity, Health(100))
+
+    assert world.component_types(entity) == (Health, Name)
+
+
 def test_destroy_removes_entity_and_components() -> None:
     world = World()
     entity = world.create()
@@ -71,3 +80,5 @@ def test_invalid_component_operations_raise_clear_errors() -> None:
         world.get(entity, Name)
     with pytest.raises(KeyError, match="Unknown entity"):
         world.has(999, Health)
+    with pytest.raises(KeyError, match="Unknown entity"):
+        world.component_types(999)

@@ -21,10 +21,12 @@ import {
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import "./styles.css";
 import {
+  componentLabel,
   illuminationLabel,
   telemetryWebSocketUrl,
   temperatureRange,
   type EntityTelemetry,
+  type ScenarioDescription,
   type TelemetryFrame,
 } from "./telemetry";
 
@@ -40,21 +42,84 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     </section>
     <aside class="telemetry-panel">
       <header><p class="eyebrow">LIVE SCENARIO</p><h1>International<br/>Space Station</h1><p id="timestamp">Waiting for telemetry</p></header>
-      <section class="metric-grid">
-        <article><span>ILLUMINATION</span><strong id="illumination">—</strong></article>
-        <article><span>BATTERY</span><strong id="battery">—</strong><div class="meter"><i id="battery-meter"></i></div></article>
-        <article><span>GENERATION</span><strong id="generation">—</strong></article>
-        <article><span>LOAD</span><strong id="load">—</strong></article>
-        <article><span>POINTING ERROR</span><strong id="pointing-error">—</strong></article>
-        <article><span>MAX WHEEL SPEED</span><strong id="wheel-speed">—</strong></article>
-      </section>
-      <section class="thermal">
-        <div class="section-heading"><div><p class="eyebrow">THERMAL CONTROL</p><h2>Channel Array</h2></div><strong id="temperature-range">—</strong></div>
-        <div id="thermal-grid" class="thermal-grid"></div>
-      </section>
+      <nav class="panel-tabs" role="tablist" aria-label="ISS information">
+        <button id="telemetry-tab" type="button" role="tab" aria-selected="true" aria-controls="telemetry-view" data-panel="telemetry-view">Telemetry</button>
+        <button id="components-tab" type="button" role="tab" aria-selected="false" aria-controls="components-view" data-panel="components-view" tabindex="-1">Components</button>
+      </nav>
+      <div id="telemetry-view" class="tab-panel" role="tabpanel" aria-labelledby="telemetry-tab">
+        <section class="metric-grid">
+          <article><span>ILLUMINATION</span><strong id="illumination">—</strong></article>
+          <article><span>BATTERY</span><strong id="battery">—</strong><div class="meter"><i id="battery-meter"></i></div></article>
+          <article><span>GENERATION</span><strong id="generation">—</strong></article>
+          <article><span>LOAD</span><strong id="load">—</strong></article>
+          <article><span>POINTING ERROR</span><strong id="pointing-error">—</strong></article>
+          <article><span>MAX WHEEL SPEED</span><strong id="wheel-speed">—</strong></article>
+        </section>
+        <section class="thermal">
+          <div class="section-heading"><div><p class="eyebrow">THERMAL CONTROL</p><h2>Channel Array</h2></div><strong id="temperature-range">—</strong></div>
+          <div id="thermal-grid" class="thermal-grid"></div>
+        </section>
+      </div>
+      <div id="components-view" class="tab-panel components-view" role="tabpanel" aria-labelledby="components-tab" hidden>
+        <section class="components">
+          <div class="section-heading"><div><p class="eyebrow">ENTITY INVENTORY</p><h2>ISS Components</h2></div><strong id="component-count">—</strong></div>
+          <p class="components-intro">ECS components currently attached to the primary ISS entity.</p>
+          <div id="component-list" class="component-list" aria-live="polite"><p class="components-status">Loading component inventory…</p></div>
+        </section>
+      </div>
       <footer><span>ECI LIVE TELEMETRY</span><span id="sequence">SEQ —</span></footer>
     </aside>
   </main>`;
+
+const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>("[role='tab']"));
+
+function selectTab(selected: HTMLButtonElement): void {
+  for (const tab of tabs) {
+    const active = tab === selected;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    document.querySelector<HTMLElement>(`#${tab.dataset.panel}`)!.hidden = !active;
+  }
+}
+
+for (const tab of tabs) {
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const offset = event.key === "ArrowRight" ? 1 : -1;
+    const next = tabs[(tabs.indexOf(tab) + offset + tabs.length) % tabs.length]!;
+    selectTab(next);
+    next.focus();
+  });
+}
+
+function renderComponents(names: string[]): void {
+  const list = document.querySelector<HTMLDivElement>("#component-list")!;
+  const cards = names.map((name) => {
+    const card = document.createElement("article");
+    const label = document.createElement("strong");
+    const type = document.createElement("code");
+    label.textContent = componentLabel(name);
+    type.textContent = name;
+    card.append(label, type);
+    return card;
+  });
+  list.replaceChildren(...cards);
+  setText("component-count", `${names.length} TOTAL`);
+}
+
+async function loadComponents(): Promise<void> {
+  try {
+    const response = await fetch("/api/v1/scenario");
+    if (!response.ok) throw new Error(`scenario request failed: ${response.status}`);
+    const description = (await response.json()) as ScenarioDescription;
+    renderComponents(description.entityComponents.iss ?? []);
+  } catch {
+    document.querySelector<HTMLDivElement>("#component-list")!.innerHTML =
+      '<p class="components-status error">Component inventory unavailable.</p>';
+  }
+}
 
 const viewer = new Viewer("cesium", {
   animation: false,
@@ -181,3 +246,4 @@ function connect(): void {
 }
 
 connect();
+void loadComponents();

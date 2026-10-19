@@ -60,9 +60,22 @@ export interface TelemetryFrame {
   entities: { iss: EntityTelemetry };
 }
 
+export interface ScenarioDescription {
+  schemaVersion: 1;
+  scenario: string;
+  entities: string[];
+  entityComponents: Record<string, string[]>;
+}
+
 export function telemetryWebSocketUrl(location: Location): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${location.host}/api/v1/telemetry`;
+}
+
+export function componentLabel(name: string): string {
+  return name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2");
 }
 
 export function illuminationLabel(sunlit: boolean | null): string {

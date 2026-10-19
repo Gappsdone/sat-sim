@@ -116,6 +116,8 @@ def snapshot_iss(
 
 def describe_iss_scenario(scenario: ISSScenario) -> ScenarioDescription:
     """Describe static ISS geometry, units, and component capacities."""
+    if scenario.entity is None:
+        raise RuntimeError("ISS scenario must be set up before describing it")
     channels = tuple(
         ThermalChannelDescription(
             id=sensor.id,
@@ -128,6 +130,12 @@ def describe_iss_scenario(scenario: ISSScenario) -> ScenarioDescription:
     return ScenarioDescription(
         scenario="ISS",
         entities=("iss",),
+        entity_components={
+            "iss": tuple(
+                component_type.__name__
+                for component_type in scenario.world.component_types(scenario.entity)
+            )
+        },
         battery_capacity_wh=scenario.pcdu.capacity_wh,
         solar_panel_peak_power_w=scenario.solar_panel.peak_power_w,
         solar_panel_normal_body=scenario.solar_panel.normal_body,

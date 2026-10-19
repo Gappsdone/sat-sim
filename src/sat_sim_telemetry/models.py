@@ -108,6 +108,7 @@ class ScenarioDescription(WireModel):
     schema_version: Literal[1] = 1
     scenario: str
     entities: tuple[str, ...]
+    entity_components: dict[str, tuple[str, ...]]
     coordinate_frame: Literal["ECI"] = "ECI"
     position_unit: Literal["m"] = "m"
     velocity_unit: Literal["m/s"] = "m/s"

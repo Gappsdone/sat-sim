@@ -86,9 +86,36 @@ def test_description_separates_static_geometry_from_streamed_state(
 
     assert description.scenario == "ISS"
     assert description.entities == ("iss",)
+    assert description.entity_components["iss"] == (
+        "ADCSFaultState",
+        "ADCSModeState",
+        "ADCSSensorConfiguration",
+        "ADCSSensorMeasurements",
+        "ADCSStatus",
+        "AttitudeController",
+        "AttitudeEstimate",
+        "AttitudeEstimatorConfiguration",
+        "AttitudeReference",
+        "AttitudeState",
+        "ECIPosition",
+        "ECIVelocity",
+        "IlluminationState",
+        "MagnetorquerAssembly",
+        "MomentumManagementConfiguration",
+        "PCDU",
+        "ReactionWheelAssembly",
+        "RigidBody",
+        "SolarPanel",
+        "SpacecraftAttitude",
+    )
     assert description.coordinate_frame == "ECI"
     assert description.solar_panel_peak_power_w == 100.0
     assert len(description.thermal_channels) == 9
+
+
+def test_description_requires_initialized_iss_scenario() -> None:
+    with pytest.raises(RuntimeError, match="set up"):
+        describe_iss_scenario(ISSScenario())
 
 
 def test_publisher_steps_scenario_and_increments_sequence(
