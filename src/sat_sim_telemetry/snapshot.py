@@ -43,6 +43,11 @@ def _component_value(value: object) -> JsonValue:
         return int(value)
     if isinstance(value, Real):
         return float(value)
+    scalar_item = getattr(value, "item", None)
+    if callable(scalar_item):
+        scalar = scalar_item()
+        if scalar is not value:
+            return _component_value(scalar)
     if isinstance(value, (list, tuple)):
         return [_component_value(item) for item in value]
     if isinstance(value, dict):

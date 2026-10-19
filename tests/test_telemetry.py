@@ -177,6 +177,12 @@ def test_api_serves_metadata_latest_snapshot_and_websocket(
         store.publish(frame)
         capsys.readouterr()
 
+        live_metadata = client.get("/api/v1/scenario")
+        assert live_metadata.status_code == 200
+        assert live_metadata.json()["entityComponentValues"]["iss"]["ADCSStatus"][
+            "wheel_saturated"
+        ] == [False, False, False]
+
         response = client.get("/api/v1/state")
         assert response.status_code == 200
         assert response.json()["entities"]["iss"]["power"]["batteryCapacityWh"] == (
