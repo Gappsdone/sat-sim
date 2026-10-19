@@ -41,7 +41,7 @@ def test_setup_initializes_orbit_and_temperature_threshold(
     assert scenario.world.has(scenario.entity, SpacecraftAttitude)
     assert scenario.world.has(scenario.entity, PCDU)
     assert scenario.world.has(scenario.entity, SolarPanel)
-    assert len(list(scenario.world.query(PowerConsumer))) == 9
+    assert len(list(scenario.world.query(PowerConsumer))) == 10
     assert len(list(scenario.world.query(TemperatureSensor, HeaterCommand))) == 9
     assert len(scenario.tcs.sensors) == len(scenario.tcs.heaters) == 9
     assert scenario.tcs.heater_threshold_celsius == 24.0
@@ -95,8 +95,12 @@ def test_step_returns_and_prints_orbital_and_thermal_telemetry(
     attitude = scenario.world.get(scenario.entity, SpacecraftAttitude)
     position_length = sum(component**2 for component in expected_position) ** 0.5
     assert attitude.z_axis_eci == pytest.approx(
-        tuple(-component / position_length for component in expected_position)
+        tuple(-component / position_length for component in expected_position),
+        abs=5e-4,
     )
+    assert state.pointing_error_deg < 0.1
+    assert len(state.wheel_speeds_rad_s) == 3
+    assert "ADCS: pointing error" in output
     assert state.is_sunlit is True
     assert "sunlit" in output
     assert "PCDU:" in output

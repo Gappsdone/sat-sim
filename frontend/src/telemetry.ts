@@ -22,6 +22,15 @@ export interface EntityTelemetry {
     order: "xyzw";
     value: [number, number, number, number];
   };
+  adcs: {
+    angularVelocityBodyRadS: [number, number, number];
+    pointingErrorDeg: number;
+    targetQuaternionXyzw: [number, number, number, number];
+    commandedTorqueNm: [number, number, number];
+    appliedTorqueNm: [number, number, number];
+    wheelSpeedsRadS: [number, number, number];
+    wheelSaturated: [boolean, boolean, boolean];
+  };
   illumination: {
     sunlit: boolean | null;
     sunDirectionEci: [number, number, number] | null;

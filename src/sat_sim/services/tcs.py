@@ -661,14 +661,22 @@ class ThermalControlSystem:
         )
         self.advance(delta_time, timestamp)
 
-    def advance(self, delta_time: float, timestamp: datetime) -> None:
+    def advance(
+        self,
+        delta_time: float,
+        timestamp: datetime,
+        *,
+        update_attitude: bool = True,
+    ) -> None:
         """Run illumination, control, and dynamics against ECS state in order."""
         _validate_delta_time(delta_time)
         if not isinstance(timestamp, datetime):
             raise ValueError("timestamp must be a datetime")
         if self.spacecraft_entity is None:
             raise RuntimeError("thermal system is not bound to a spacecraft entity")
-        attitude = self.attitude_system.update(self.world, self.spacecraft_entity)
+        attitude = self.world.get(self.spacecraft_entity, SpacecraftAttitude)
+        if update_attitude:
+            attitude = self.attitude_system.update(self.world, self.spacecraft_entity)
         illumination = self.illumination_system.update(
             self.world, self.spacecraft_entity, timestamp
         )

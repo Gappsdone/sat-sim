@@ -34,6 +34,16 @@ class AttitudeTelemetry(WireModel):
     value: tuple[float, float, float, float]
 
 
+class ADCSTelemetry(WireModel):
+    angular_velocity_body_rad_s: tuple[float, float, float]
+    pointing_error_deg: float
+    target_quaternion_xyzw: tuple[float, float, float, float]
+    commanded_torque_nm: tuple[float, float, float]
+    applied_torque_nm: tuple[float, float, float]
+    wheel_speeds_rad_s: tuple[float, float, float]
+    wheel_saturated: tuple[bool, bool, bool]
+
+
 class IlluminationTelemetry(WireModel):
     sunlit: bool | None
     sun_direction_eci: tuple[float, float, float] | None
@@ -60,6 +70,7 @@ class EntityTelemetry(WireModel):
     position: Vector3
     velocity: Vector3
     attitude: AttitudeTelemetry
+    adcs: ADCSTelemetry
     illumination: IlluminationTelemetry
     power: PowerTelemetry
     thermal_channels: tuple[ThermalChannelTelemetry, ...]

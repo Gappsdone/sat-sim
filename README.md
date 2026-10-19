@@ -76,6 +76,32 @@ simulation.run()  # returns when interrupted with Ctrl+C
 The ISS-specific class fetches its TLE and creates its ECS entity in `setup()`;
 `Simulation` calls `step()` at each scheduled tick.
 
+## Attitude determination and control
+
+`ISSScenario` uses the rigid-body ADCS model in `sat_sim.adcs` instead of
+instantaneously forcing the ideal orbital frame. Its body-to-ECI quaternion and
+body angular velocity are integrated from Euler's rotational equation with
+configurable principal moments of inertia. A quaternion-error PD controller
+tracks a nadir reference where body +Z points toward Earth and body +X follows
+the projected along-track velocity.
+
+Three orthogonal reaction wheels apply equal-and-opposite spacecraft torque.
+Each wheel enforces motor-torque and rotor-speed limits and reports its speed
+and saturation state. The default integrator subdivides scenario steps into at
+most 0.1 second intervals and normalizes the quaternion after every substep.
+The initial state is aligned with the current nadir frame and initialized at
+the orbital-frame angular rate. These parameters are illustrative spacecraft
+values, not validated ISS hardware values.
+
+The scenario owns ADCS scheduling: orbit propagation, reference/control,
+rigid-body integration, thermal dynamics, and finally electrical accounting.
+Thermal and power systems consume the completed attitude without changing it.
+Standalone `ThermalControlSystem` users retain the legacy ideal
+`AttitudeSystem` behavior unless they supply their own fixed attitude.
+Telemetry includes body rates, target quaternion, pointing error, commanded and
+applied torque, wheel speeds, and wheel saturation. The ADCS also contributes
+an 8 W default idle electrical load.
+
 ## Thermal control system
 
 `ThermalControlSystem` provides nine paired temperature sensors and heaters by
@@ -86,17 +112,13 @@ node entity in an ECS `World`, with `TemperatureSensor`, `Heater`,
 stored on its ECS entity as `IlluminationState`. In `ISSScenario`, orbital and
 thermal entities share the scenario's `World`.
 
-The attitude component and system live in `sat_sim.attitude`. The TCS facade
-runs four systems in a fixed order: `AttitudeSystem`,
-`IlluminationSystem`, `HeaterControlSystem`, then `ThermalDynamicsSystem`.
-The spacecraft's `SpacecraftAttitude` component is updated from its current ECI
-position and velocity on each step: body +Z points toward Earth and body +X is
-the projected along-track direction. If no ECI velocity is present, the frame
-remains fixed (identity by default). Set `auto_orient=False` on the attitude
-component to supply a fixed frame explicitly. Scenario telemetry is read
-from ECS queries into an immutable snapshot. The compatibility `sensors` and
-`heaters` properties return channel-ordered views; new code should query the ECS
-world directly.
+The attitude helpers live in `sat_sim.attitude`. Outside the integrated ISS
+scenario, the TCS facade runs ideal attitude, illumination, heater control, and
+thermal dynamics in that order. If no ECI velocity is present, the frame remains
+fixed (identity by default). Set `auto_orient=False` to supply a fixed frame.
+Scenario telemetry is read from ECS queries into an immutable snapshot. The
+compatibility `sensors` and `heaters` properties return channel-ordered views;
+new code should query the ECS world directly.
 
 Each sensor below the configured temperature threshold automatically drives its
 paired heater with a bounded PID controller (`kp=1.0`, `ki=0.0`, `kd=0.0` by
@@ -170,11 +192,11 @@ converted to watt-hours and applied to the battery, clamped between empty and
 its configured capacity.
 
 Spacecraft loads expose a `PowerConsumer` component. Each TCS heater updates its
-requested power from its rated wattage and PID output before the PCDU totals all
-loads. The ISS scenario reports battery charge, generated power, and consumed
-power on every step. The defaults are a 1,000 Wh battery initially charged to
-500 Wh and a 100 W panel mounted on body -Z; these values are configurable in
-the `ISSScenario` constructor.
+requested power from its rated wattage and PID output, and ADCS contributes its
+idle load, before the PCDU totals all consumers. The ISS scenario reports
+battery charge, generated power, and consumed power on every step. The defaults
+are a 1,000 Wh battery initially charged to 500 Wh and a 100 W panel mounted on
+body -Z; these values are configurable in the `ISSScenario` constructor.
 
 ## Frontend telemetry API
 
@@ -244,7 +266,8 @@ The separate `frontend` package renders the live ISS position and orbit trail
 over Esri World Imagery on a Cesium globe, with source attribution displayed on
 the map. It transforms timestamped ECI samples into Cesium's fixed frame,
 applies the streamed body-to-ECI attitude, and shows eclipse, battery,
-generation, load, and all nine thermal channels in a responsive systems panel.
+generation, load, ADCS pointing error, reaction-wheel speed, and all nine
+thermal channels in a responsive systems panel.
 
 ![Live ISS scenario in the Cesium telemetry dashboard](docs/images/iss-telemetry-dashboard.png)
 

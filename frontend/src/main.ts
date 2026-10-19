@@ -45,6 +45,8 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <article><span>BATTERY</span><strong id="battery">—</strong><div class="meter"><i id="battery-meter"></i></div></article>
         <article><span>GENERATION</span><strong id="generation">—</strong></article>
         <article><span>LOAD</span><strong id="load">—</strong></article>
+        <article><span>POINTING ERROR</span><strong id="pointing-error">—</strong></article>
+        <article><span>MAX WHEEL SPEED</span><strong id="wheel-speed">—</strong></article>
       </section>
       <section class="thermal">
         <div class="section-heading"><div><p class="eyebrow">THERMAL CONTROL</p><h2>Channel Array</h2></div><strong id="temperature-range">—</strong></div>
@@ -141,6 +143,11 @@ function updateDashboard(frame: TelemetryFrame, state: EntityTelemetry): void {
   setText("battery", `${(state.power.stateOfCharge * 100).toFixed(1)}%`);
   setText("generation", `${state.power.generatedPowerW.toFixed(1)} W`);
   setText("load", `${state.power.consumedPowerW.toFixed(1)} W`);
+  setText("pointing-error", `${state.adcs.pointingErrorDeg.toFixed(3)}°`);
+  setText(
+    "wheel-speed",
+    `${Math.max(...state.adcs.wheelSpeedsRadS.map(Math.abs)).toFixed(2)} rad/s`,
+  );
   setText("temperature-range", temperatureRange(state.thermalChannels));
   setText("sequence", `SEQ ${frame.sequence}`);
   document.querySelector<HTMLElement>("#battery-meter")!.style.width = `${Math.max(0, Math.min(100, state.power.stateOfCharge * 100))}%`;

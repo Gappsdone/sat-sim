@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from math import isfinite, sqrt
 
-from sat_sim.attitude import AttitudeSystem, SpacecraftAttitude
+from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.ecs import Entity, World
 from sat_sim.position import ECIPosition
 from sat_sim.solar import satellite_is_sunlit, solar_direction_eci
@@ -71,7 +71,7 @@ class PCDUSystem:
         pcdu = world.get(spacecraft_entity, PCDU)
         panel = world.get(spacecraft_entity, SolarPanel)
         position = world.get(spacecraft_entity, ECIPosition)
-        attitude = AttitudeSystem.update(world, spacecraft_entity)
+        attitude = world.get(spacecraft_entity, SpacecraftAttitude)
         position_m = (position.x, position.y, position.z)
         pcdu.is_sunlit = satellite_is_sunlit(position_m, timestamp)
 

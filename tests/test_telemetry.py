@@ -63,6 +63,9 @@ def test_snapshot_contains_cesium_ready_orbit_attitude_and_subsystems(
     assert iss.velocity.unit == "m/s"
     assert iss.attitude.frame == "BODY_TO_ECI"
     assert sum(value**2 for value in iss.attitude.value) == pytest.approx(1.0)
+    assert iss.adcs.pointing_error_deg == pytest.approx(state.pointing_error_deg)
+    assert iss.adcs.wheel_speeds_rad_s == pytest.approx(state.wheel_speeds_rad_s)
+    assert len(iss.adcs.target_quaternion_xyzw) == 4
     assert iss.illumination.sunlit is True
     assert iss.power.battery_capacity_wh == 1_000.0
     assert iss.power.state_of_charge == pytest.approx(state.battery_charge_wh / 1_000.0)

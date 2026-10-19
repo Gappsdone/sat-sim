@@ -6,6 +6,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
 
+from sat_sim.adcs import (
+    ADCSStatus,
+    ADCSSystem,
+    AttitudeController,
+    AttitudeReference,
+    AttitudeState,
+    ReactionWheelAssembly,
+    RigidBody,
+)
 from sat_sim.attitude import SpacecraftAttitude
 from sat_sim.ecs import Entity
 from sat_sim.orbital import (
@@ -13,7 +22,7 @@ from sat_sim.orbital import (
     create_satellite_from_orbital,
     propagate_orbital,
 )
-from sat_sim.pcdu import PCDU, PCDUSystem, SolarPanel
+from sat_sim.pcdu import PCDU, PCDUSystem, PowerConsumer, SolarPanel
 from sat_sim.position import ECIPosition, ECIVelocity
 from sat_sim.scenario import Scenario
 from sat_sim.services.tcs import (
@@ -52,6 +61,10 @@ class ISSScenarioState:
     battery_charge_wh: float
     generated_power_w: float
     consumed_power_w: float
+    angular_velocity_body_rad_s: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    pointing_error_deg: float = 0.0
+    wheel_speeds_rad_s: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    wheel_saturated: tuple[bool, bool, bool] = (False, False, False)
 
 
 def fetch_iss_tle(
@@ -111,6 +124,7 @@ class ISSScenario(Scenario):
         battery_capacity_wh: float = 1_000.0,
         initial_battery_charge_wh: float = 500.0,
         solar_panel_peak_power_w: float = 100.0,
+        adcs_idle_power_w: float = 8.0,
     ) -> None:
         super().__init__()
         self.timeout = timeout
@@ -135,6 +149,9 @@ class ISSScenario(Scenario):
         self.pcdu = PCDU(battery_capacity_wh, initial_battery_charge_wh)
         self.solar_panel = SolarPanel(solar_panel_peak_power_w)
         self.pcdu_system = PCDUSystem()
+        self.adcs_system = ADCSSystem()
+        self.adcs_power = PowerConsumer(adcs_idle_power_w)
+        self.adcs_power_entity: Entity | None = None
         self._last_thermal_timestamp: datetime | None = None
 
     def setup(self, timestamp: datetime) -> None:
@@ -150,10 +167,19 @@ class ISSScenario(Scenario):
             self.orbital,
             timestamp,
         )
-        self.world.add(self.entity, SpacecraftAttitude())
+        self.world.add(self.entity, SpacecraftAttitude(auto_orient=False))
+        self.world.add(self.entity, RigidBody())
+        self.world.add(self.entity, AttitudeState())
+        self.world.add(self.entity, AttitudeReference())
+        self.world.add(self.entity, AttitudeController())
+        self.world.add(self.entity, ReactionWheelAssembly())
+        self.world.add(self.entity, ADCSStatus())
         self.world.add(self.entity, self.pcdu)
         self.world.add(self.entity, self.solar_panel)
+        self.adcs_power_entity = self.world.create()
+        self.world.add(self.adcs_power_entity, self.adcs_power)
         self.tcs.bind_spacecraft_entity(self.entity)
+        self.adcs_system.initialize(self.world, self.entity)
         self._last_thermal_timestamp = timestamp
 
     def step(self, timestamp: datetime) -> ISSScenarioState:
@@ -178,10 +204,14 @@ class ISSScenario(Scenario):
         if previous_timestamp is not None:
             delta_time = (timestamp - previous_timestamp).total_seconds()
             if delta_time > 0:
-                self.tcs.advance(delta_time, timestamp)
+                self.adcs_system.update(self.world, self.entity, delta_time)
+                self.tcs.advance(delta_time, timestamp, update_attitude=False)
                 self.pcdu_system.update(self.world, self.entity, delta_time, timestamp)
         self._last_thermal_timestamp = timestamp
 
+        attitude_state = self.world.get(self.entity, AttitudeState)
+        adcs_status = self.world.get(self.entity, ADCSStatus)
+        wheels = self.world.get(self.entity, ReactionWheelAssembly)
         state = ISSScenarioState(
             timestamp=timestamp,
             position=ECIPosition(
@@ -202,6 +232,10 @@ class ISSScenario(Scenario):
             battery_charge_wh=self.pcdu.charge_wh,
             generated_power_w=self.pcdu.generated_power_w,
             consumed_power_w=self.pcdu.consumed_power_w,
+            angular_velocity_body_rad_s=attitude_state.angular_velocity_body_rad_s,
+            pointing_error_deg=adcs_status.pointing_error_deg,
+            wheel_speeds_rad_s=wheels.speeds_rad_s,
+            wheel_saturated=adcs_status.wheel_saturated,
         )
         self.print_state(state)
         return state
@@ -223,6 +257,11 @@ class ISSScenario(Scenario):
             f"\tPCDU: {state.battery_charge_wh:.2f}/{self.pcdu.capacity_wh:.2f} Wh; "
             f"generation {state.generated_power_w:.2f} W; "
             f"load {state.consumed_power_w:.2f} W"
+        )
+        print(
+            f"\tADCS: pointing error {state.pointing_error_deg:.3f}°; "
+            f"body rates {state.angular_velocity_body_rad_s}; "
+            f"wheel speeds {state.wheel_speeds_rad_s} rad/s"
         )
         for _entity, sensor, heater, command in self.world.query(
             TemperatureSensor, Heater, HeaterCommand
