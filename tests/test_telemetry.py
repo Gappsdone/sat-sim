@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from pus_library import ByteOrder, HousekeepingReport, SourcePacket
 from sat_sim.scenarios.iss_scenario import ISSScenario
+from sat_sim.services.housekeeping import TCS_HOUSEKEEPING_DEFINITIONS
 from sat_sim.services.tcs import solar_direction_eci
 from sat_sim_telemetry import (
     ISSTelemetryPublisher,
@@ -99,8 +100,11 @@ def test_publisher_steps_scenario_and_increments_sequence(
     assert store.current is second
     assert len(pus.packets) == 2
     packet = SourcePacket(pus.packets[-1].get_bytes(), ByteOrder.BIG_ENDIAN)
-    report = HousekeepingReport.from_service_data(packet.packet_data_field.data)
-    assert report.sequence == 1
+    report = HousekeepingReport.from_service_data(
+        packet.packet_data_field.data, TCS_HOUSEKEEPING_DEFINITIONS
+    )
+    assert report.structure_id == 1
+    assert packet.packet_header.sequence_control.sequence_count == 1
     publisher.consume(packet)
     assert publisher.last_consumed_packet is packet
 

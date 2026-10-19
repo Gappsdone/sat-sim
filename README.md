@@ -196,18 +196,22 @@ The live server also produces a CRC-protected PUS Service 3 periodic
 housekeeping packet (`TM(3,25)`) for every simulation step. Complete PUS packets
 are published and consumed exclusively as one packet per UDP datagram; they are
 not exposed through the HTTP telemetry API. Its application payload uses the
-documented sat-sim profile implemented by `HousekeepingReport`: an 8-bit
-structure ID and 32-bit parameter IDs, matching the ID widths used by
-`it_pusutilities_framework`, plus a 32-bit report sequence and typed parameter
-samples. The default ISS structure reports illumination, battery charge,
-generated and consumed power, and every thermal temperature and heater state.
-TCS parameter IDs and source PRID come from `plugin_tcs`'s `TCS.java` on its
-`dev` branch: PRID 5, 27 thermistor IDs grouped as three sensors for each of
-nine heaters, and nine heater-indicator IDs. Each simulated thermal channel
-feeds the plugin's three thermistors for that heater. Heater output is published
-as the integer activity indicator expected by the plugin. The plugin defines no
-IDs for illumination or electrical-power values, so those retain sat-sim's
-local IDs 1 through 4.
+PUSUtilities `DataSST25` layout implemented by `HousekeepingReport`: an 8-bit
+structure ID followed by raw parameter values in the structure order configured
+in PUSUtilities. Parameter IDs and types are mission-database metadata and are
+not repeated in each report. The CCSDS packet sequence counter carries the
+simulation report sequence.
+
+TCS parameter IDs, sizes, types, and source PRID come from `plugin_tcs`'s
+`TCS.java` on its `dev` branch: PRID 5, 27 four-byte `FLOAT` thermistors grouped
+as three sensors for each of nine heaters, followed by nine four-byte `INTEGER`
+heater indicators. Each simulated thermal channel feeds the plugin's three
+thermistors for that heater. Heater output is published as the integer activity
+indicator expected by the plugin. SID 1 must be configured in PUSUtilities with
+those 36 IDs in the order declared by `TCS_HOUSEKEEPING_DEFINITIONS`; the plugin
+registers their value metadata but does not create a housekeeping structure.
+Illumination and electrical-power values are omitted because `plugin_tcs`
+defines no parameter IDs for them.
 Service 3 definition-management telecommands are not implemented yet.
 
 The bidirectional UDP socket is configured through environment variables:

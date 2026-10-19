@@ -201,6 +201,7 @@ class SourcePacket(PacketSector):
         service_sub_type: int | None = None,
         local_prid: int = 0,
         destination_prid: int = 0,
+        sequence_count: int = 0,
     ) -> SourcePacket:
         st = data.service_type if service_type is None else service_type
         sst = data.service_sub_type if service_sub_type is None else service_sub_type
@@ -217,7 +218,7 @@ class SourcePacket(PacketSector):
         field = PacketDataField(dfh, data)
         header = PacketHeader(
             packet_id,
-            PacketSequenceControl(3, 0),
+            PacketSequenceControl(3, sequence_count),
             len(dfh.get_bytes()) + len(data.data) + 2,
         )
         return cls(header, field)

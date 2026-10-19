@@ -1,8 +1,12 @@
-"""ISS housekeeping report generation using PUS Service 3."""
+"""ISS TCS housekeeping report generation using PUS Service 3."""
 
-from enum import IntEnum
-
-from pus_library import HousekeepingParameter, HousekeepingReport, SourcePacket
+from pus_library import (
+    HousekeepingParameter,
+    HousekeepingParameterDefinition,
+    HousekeepingParameterType,
+    HousekeepingReport,
+    SourcePacket,
+)
 from sat_sim.scenarios.iss_scenario import ISSScenarioState
 
 ISS_HOUSEKEEPING_STRUCTURE_ID = 1
@@ -34,55 +38,40 @@ TCS_HEATER_INDICATOR_IDS = (
 )
 
 
-class ISSHousekeepingParameter(IntEnum):
-    """Stable mission-database identifiers for the default ISS report."""
+TCS_HOUSEKEEPING_DEFINITIONS = tuple(
+    HousekeepingParameterDefinition(parameter_id, 4, HousekeepingParameterType.FLOAT)
+    for group in TCS_THERMISTOR_IDS
+    for parameter_id in group
+) + tuple(
+    HousekeepingParameterDefinition(
+        parameter_id, 4, HousekeepingParameterType.SIGNED_INTEGER
+    )
+    for parameter_id in TCS_HEATER_INDICATOR_IDS
+)
 
-    ILLUMINATION_STATE = 1
-    BATTERY_CHARGE_WH = 2
-    GENERATED_POWER_W = 3
-    CONSUMED_POWER_W = 4
 
-
-def create_iss_housekeeping_report(
-    state: ISSScenarioState, sequence: int
-) -> HousekeepingReport:
-    """Create the default platform housekeeping report from one scenario step."""
-    illumination = -1 if state.is_sunlit is None else int(state.is_sunlit)
-    parameters = [
-        HousekeepingParameter(
-            ISSHousekeepingParameter.ILLUMINATION_STATE, illumination
-        ),
-        HousekeepingParameter(
-            ISSHousekeepingParameter.BATTERY_CHARGE_WH, state.battery_charge_wh
-        ),
-        HousekeepingParameter(
-            ISSHousekeepingParameter.GENERATED_POWER_W, state.generated_power_w
-        ),
-        HousekeepingParameter(
-            ISSHousekeepingParameter.CONSUMED_POWER_W, state.consumed_power_w
-        ),
-    ]
+def create_iss_housekeeping_report(state: ISSScenarioState) -> HousekeepingReport:
+    """Create the plugin_tcs structure report from one scenario step."""
     if len(state.temperatures_celsius) != len(TCS_THERMISTOR_IDS):
         raise ValueError("the ISS scenario must expose all nine TCS thermal channels")
     if len(state.heater_outputs) != len(TCS_HEATER_INDICATOR_IDS):
         raise ValueError("the ISS scenario must expose all nine TCS heater channels")
-    parameters.extend(
-        HousekeepingParameter(parameter_id, temperature)
-        for parameter_ids, temperature in zip(
+    values = [
+        temperature
+        for _parameter_ids, temperature in zip(
             TCS_THERMISTOR_IDS, state.temperatures_celsius, strict=True
         )
-        for parameter_id in parameter_ids
-    )
-    parameters.extend(
-        HousekeepingParameter(parameter_id, int(output > 0.0))
-        for parameter_id, output in zip(
-            TCS_HEATER_INDICATOR_IDS, state.heater_outputs, strict=True
-        )
-    )
+        for _parameter_id in _parameter_ids
+    ]
+    values.extend(int(output > 0.0) for output in state.heater_outputs)
     return HousekeepingReport(
         ISS_HOUSEKEEPING_STRUCTURE_ID,
-        sequence,
-        tuple(parameters),
+        tuple(
+            HousekeepingParameter(definition, value)
+            for definition, value in zip(
+                TCS_HOUSEKEEPING_DEFINITIONS, values, strict=True
+            )
+        ),
     )
 
 
@@ -90,9 +79,10 @@ def create_iss_housekeeping_packet(
     state: ISSScenarioState, sequence: int
 ) -> SourcePacket:
     """Packetize one ISS housekeeping report as CRC-protected TM(3,25)."""
-    report = create_iss_housekeeping_report(state, sequence)
+    report = create_iss_housekeeping_report(state)
     return SourcePacket.get_source_packet(
         report.to_service_data(),
         local_prid=ISS_APPLICATION_PROCESS_ID,
         destination_prid=GROUND_APPLICATION_PROCESS_ID,
+        sequence_count=sequence,
     )
