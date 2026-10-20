@@ -426,3 +426,17 @@ uv run ruff format --check .
 uv run mypy
 uv run pytest  # runs with coverage; fails below 90%
 ```
+
+### PUS service 140 thermal parameters
+
+The live simulator handles TC(140,2) parameter requests and sends TM(140,3)
+reports, and handles TC(140,1) on/off assignments for the nine heater indicator
+IDs. Thermistor IDs are read-only. Unknown IDs, invalid values, and malformed
+lengths are rejected without applying a partial command. Requests addressed to
+another PRID are ignored. The packet-caster subtypes 31–34 are not simulated.
+
+The application-data layout follows PUSUtilities Java `DataSST2` and
+`ParameterManagementData`: one-byte NPAR followed by big-endian four-byte IDs;
+set/report entries also carry four-byte values. TCS parameter IDs and sizes are
+from `plugin_tcs`'s `TCS.java` assignments, shared with the Service 3 housekeeping
+mapping in `src/sat_sim/services/housekeeping.py`.

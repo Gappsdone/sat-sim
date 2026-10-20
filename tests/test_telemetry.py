@@ -218,3 +218,56 @@ def test_store_rejects_stale_frames_and_drops_slow_subscriber_backlog(
 def test_store_requires_positive_subscriber_queue_size() -> None:
     with pytest.raises(ValueError, match="greater than zero"):
         TelemetryStore(0)
+
+
+def test_service_140_get_and_set_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from struct import pack
+
+    from pus_library import service_data
+    from sat_sim.services.housekeeping import (
+        ISS_APPLICATION_PROCESS_ID,
+        TCS_HEATER_INDICATOR_IDS,
+        TCS_THERMISTOR_IDS,
+    )
+    from sat_sim.services.parameters import (
+        ParameterCommandError,
+        handle_parameter_command,
+    )
+
+    scenario, timestamp = make_scenario(monkeypatch)
+    state = scenario.step(timestamp + timedelta(seconds=1))
+    ids = (TCS_THERMISTOR_IDS[0][0], TCS_HEATER_INDICATOR_IDS[0])
+    request = SourcePacket.get_source_packet(
+        service_data(140, 2, b"\x02" + pack(">II", *ids)),
+        local_prid=0,
+        destination_prid=ISS_APPLICATION_PROCESS_ID,
+    )
+    response = handle_parameter_command(request, state, scenario.tcs, 7)
+    assert response is not None
+    assert response.packet_data_field.data.service_sub_type == 3
+    assert response.packet_data_field.data.data == (
+        b"\x02"
+        + pack(">If", ids[0], state.temperatures_celsius[0])
+        + pack(">Ii", ids[1], int(state.heater_outputs[0] > 0))
+    )
+    assert response.get_source_prid() == ISS_APPLICATION_PROCESS_ID
+    assert response.get_destination_prid() == 0
+    assert response.verify_crc()
+
+    set_packet = SourcePacket.get_source_packet(
+        service_data(140, 1, b"\x01" + pack(">Ii", ids[1], 1)),
+        local_prid=0,
+        destination_prid=ISS_APPLICATION_PROCESS_ID,
+    )
+    assert handle_parameter_command(set_packet, state, scenario.tcs, 8) is None
+    assert scenario.tcs.heaters[0].manual_override
+    invalid = SourcePacket.get_source_packet(
+        service_data(140, 1, b"\x02" + pack(">IiIi", ids[1], 0, ids[0], 1)),
+        local_prid=0,
+        destination_prid=ISS_APPLICATION_PROCESS_ID,
+    )
+    with pytest.raises(ParameterCommandError):
+        handle_parameter_command(invalid, state, scenario.tcs, 9)
+    assert scenario.tcs.heaters[0].manual_override
