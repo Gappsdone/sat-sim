@@ -18,6 +18,11 @@ VALID_TLE = (
     "1 25544U 98067A   21001.59097222  .00001264  00000-0  29602-4 0  9996\n"
     "2 25544  51.6455  18.3234 0002187  86.1767 273.9526 15.48915313263513\n"
 )
+OTHER_ISS_TLE = (
+    "UME (ISS)\n"
+    "1 08709U 76019A   26292.86263969 -.00000034  00000+0  19976-4 0  9990\n"
+    "2 08709  69.6736 236.3074 0008985 158.4754 230.9880 13.71754256534195\n"
+)
 
 
 class FakeScenario(Scenario):
@@ -84,6 +89,9 @@ def test_tle_parser_handles_unnamed_data_and_rejects_bad_input() -> None:
     assert tle == TLE("ISS", VALID_TLE.splitlines()[1], VALID_TLE.splitlines()[2])
     with pytest.raises(ValueError, match="valid two-line element"):
         parse_tle("not TLE data")
+    assert parse_tle(OTHER_ISS_TLE + VALID_TLE, "25544").name == "ISS (ZARYA)"
+    with pytest.raises(ValueError, match="catalog 25544"):
+        parse_tle(OTHER_ISS_TLE, "25544")
 
 
 def test_iss_tle_fetch_retries_transient_errors_and_returns_parsed_data() -> None:
@@ -103,6 +111,7 @@ def test_iss_tle_fetch_retries_transient_errors_and_returns_parsed_data() -> Non
         retry_delay=0.25,
     )
     assert tle.name == "ISS (ZARYA)"
+    assert "CATNR=25544" in iss_scenario.ISS_TLE_URL
     assert calls == 2
     assert delays == [0.25]
 

@@ -31,14 +31,21 @@ def download_text(url: str, timeout: float) -> str:
         return text
 
 
-def parse_tle(text: str) -> TLE:
-    """Extract the first valid two-line element set from ``text``."""
+def parse_tle(text: str, catalog_number: str | None = None) -> TLE:
+    """Extract the first matching two-line element set from ``text``."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     for index, line1 in enumerate(lines[:-1]):
         line2 = lines[index + 1]
-        if _TLE_LINE1_PATTERN.match(line1) and _TLE_LINE2_PATTERN.match(line2):
+        if (
+            _TLE_LINE1_PATTERN.match(line1)
+            and _TLE_LINE2_PATTERN.match(line2)
+            and (catalog_number is None or line1[2:7] == catalog_number)
+        ):
             name = lines[index - 1] if index else "ISS"
             return TLE(name=name, line1=line1, line2=line2)
 
-    raise ValueError("ISS TLE response does not contain a valid two-line element set")
+    target = f" for catalog {catalog_number}" if catalog_number is not None else ""
+    raise ValueError(
+        f"ISS TLE response does not contain a valid two-line element set{target}"
+    )

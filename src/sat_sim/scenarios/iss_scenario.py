@@ -56,7 +56,11 @@ from sat_sim.tle import (
     parse_tle,
 )
 
-ISS_TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?NAME=ISS&FORMAT=tle"
+ISS_NORAD_CATALOG_NUMBER = "25544"
+ISS_TLE_URL = (
+    "https://celestrak.org/NORAD/elements/gp.php?"
+    f"CATNR={ISS_NORAD_CATALOG_NUMBER}&FORMAT=tle"
+)
 DEFAULT_THERMAL_THRESHOLD_CELSIUS = DEFAULT_HEATER_THRESHOLD_CELSIUS
 
 
@@ -105,7 +109,7 @@ def fetch_iss_tle(
             if attempt < retries:
                 sleeper(retry_delay)
         else:
-            return parse_tle(text)
+            return parse_tle(text, ISS_NORAD_CATALOG_NUMBER)
 
     assert last_error is not None
     raise last_error
