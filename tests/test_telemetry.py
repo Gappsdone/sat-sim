@@ -242,6 +242,93 @@ def test_publisher_reports_parameter_execution_failure(
     )
 
 
+def test_publisher_manages_service_3_reports(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pus_library import HousekeepingStructureDefinition, service_data
+    from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
+
+    scenario, timestamp = make_scenario(monkeypatch)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, TelemetryStore(), pus)
+    publisher.step(timestamp + timedelta(seconds=1))
+    capsys.readouterr()
+    pus.packets.clear()
+
+    def command(subtype: int, sid: int = 1) -> SourcePacket:
+        return SourcePacket.get_source_packet(
+            service_data(3, subtype, bytes((sid,))),
+            local_prid=0,
+            destination_prid=ISS_APPLICATION_PROCESS_ID,
+        )
+
+    publisher.consume(command(6))
+    assert [item.packet_data_field.data.service_sub_type for item in pus.packets] == [
+        1,
+        7,
+    ]
+    pus.packets.clear()
+    publisher.step(timestamp + timedelta(seconds=2))
+    capsys.readouterr()
+    assert pus.packets == []
+
+    publisher.consume(command(5))
+    pus.packets.clear()
+    publisher.step(timestamp + timedelta(seconds=3))
+    capsys.readouterr()
+    assert [item.packet_data_field.data.service_sub_type for item in pus.packets] == [
+        25
+    ]
+
+    pus.packets.clear()
+    publisher.consume(command(136))
+    assert [item.packet_data_field.data.service_sub_type for item in pus.packets] == [
+        1,
+        25,
+        7,
+    ]
+    assert pus.packets[1].get_destination_prid() == 0
+
+    pus.packets.clear()
+    publisher.consume(command(9))
+    assert [item.packet_data_field.data.service_sub_type for item in pus.packets] == [
+        1,
+        10,
+        7,
+    ]
+    definition = HousekeepingStructureDefinition.from_service_data(
+        pus.packets[1].packet_data_field.data
+    )
+    assert definition.structure_id == 1
+    assert definition.collection_interval == 1
+    assert len(definition.parameter_ids) == 36
+
+
+def test_publisher_reports_service_3_command_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pus_library import FaultID, service_data
+    from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
+
+    scenario, _timestamp = make_scenario(monkeypatch)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, TelemetryStore(), pus)
+    unknown_sid = SourcePacket.get_source_packet(
+        service_data(3, 136, b"\x02"),
+        destination_prid=ISS_APPLICATION_PROCESS_ID,
+    )
+
+    publisher.consume(unknown_sid)
+
+    assert [item.packet_data_field.data.service_sub_type for item in pus.packets] == [
+        1,
+        8,
+    ]
+    assert int.from_bytes(pus.packets[-1].packet_data_field.data.data[4:6], "big") == (
+        FaultID.SID_NOT_DEFINED
+    )
+
+
 def test_api_serves_metadata_latest_snapshot_and_websocket(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

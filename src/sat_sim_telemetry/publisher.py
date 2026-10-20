@@ -3,12 +3,17 @@
 from datetime import datetime
 from typing import Protocol
 
-from pus_library import FaultID, SourcePacket, TCDataFieldHeader
+from pus_library import (
+    FaultID,
+    HousekeepingCommandError,
+    SourcePacket,
+    TCDataFieldHeader,
+)
 from sat_sim.scenarios.iss_scenario import ISSScenario, ISSScenarioState
 from sat_sim.services.connection import handle_connection_test
 from sat_sim.services.housekeeping import (
     ISS_APPLICATION_PROCESS_ID,
-    create_iss_housekeeping_packet,
+    ISSHousekeepingService,
 )
 from sat_sim.services.parameters import ParameterCommandError, handle_parameter_command
 from sat_sim.services.verification import acceptance_fault, verification_report
@@ -38,6 +43,7 @@ class ISSTelemetryPublisher:
         self._sequence = 0 if store.current is None else store.current.sequence + 1
         self.last_consumed_packet: SourcePacket | None = None
         self._latest_state: ISSScenarioState | None = None
+        self.housekeeping = ISSHousekeepingService()
 
     def setup(self, timestamp: datetime) -> None:
         self.scenario.setup(timestamp)
@@ -46,9 +52,11 @@ class ISSTelemetryPublisher:
         state = self.scenario.step(timestamp)
         self._latest_state = state
         frame = snapshot_iss(self.scenario, state, self._sequence)
-        self.pus.publish(create_iss_housekeeping_packet(state, self._sequence))
+        housekeeping_packets = self.housekeeping.periodic_packets(state, self._sequence)
+        for packet in housekeeping_packets:
+            self.pus.publish(packet)
+        self._sequence += max(1, len(housekeeping_packets))
         self.store.publish(frame)
-        self._sequence += 1
         return state, frame
 
     def consume(self, packet: SourcePacket) -> None:
@@ -66,11 +74,25 @@ class ISSTelemetryPublisher:
         if isinstance(header, TCDataFieldHeader) and header.request_acceptance_report:
             self._publish_verification(packet, 1)
 
-        response = handle_connection_test(packet, self._sequence)
+        try:
+            response = self.housekeeping.handle_command(
+                packet, self._latest_state, self._sequence
+            )
+        except HousekeepingCommandError as error:
+            self._publish_verification(packet, 8, error.fault)
+            return
+        data = packet.packet_data_field.data
+        handled_housekeeping = data.service_type == 3
         if response is not None:
             self.pus.publish(response)
             self._sequence += 1
-        else:
+
+        if not handled_housekeeping:
+            response = handle_connection_test(packet, self._sequence)
+        if not handled_housekeeping and response is not None:
+            self.pus.publish(response)
+            self._sequence += 1
+        elif not handled_housekeeping:
             if self._latest_state is None:
                 self._publish_verification(packet, 8, FaultID.REPORT_ABORTED)
                 return

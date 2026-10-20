@@ -16,7 +16,9 @@ from pus_library import (
 )
 from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
 
-SUPPORTED_TELECOMMANDS = frozenset(((17, 1), (140, 1), (140, 2)))
+SUPPORTED_TELECOMMANDS = frozenset(
+    ((3, 5), (3, 6), (3, 9), (3, 136), (17, 1), (140, 1), (140, 2))
+)
 
 
 def _reference(packet: SourcePacket) -> bytes:

@@ -21,12 +21,18 @@ from .headers import (
     TMDataFieldHeader,
 )
 from .housekeeping import (
+    HOUSEKEEPING_DEFINITION_REPORT_SUBTYPE,
     HOUSEKEEPING_REPORT_SUBTYPE,
     HOUSEKEEPING_SERVICE_TYPE,
+    MAX_HOUSEKEEPING_PARAMETERS,
+    HousekeepingCommandError,
     HousekeepingParameter,
     HousekeepingParameterDefinition,
     HousekeepingParameterType,
     HousekeepingReport,
+    HousekeepingService,
+    HousekeepingStructure,
+    HousekeepingStructureDefinition,
     HousekeepingValue,
 )
 from .packet import PacketDataField, PacketErrorControl, SourcePacket
@@ -38,8 +44,10 @@ DataFieldHeaderTM = TMDataFieldHeader
 
 __all__ = [
     "DEFAULT_BYTE_ORDER",
+    "HOUSEKEEPING_DEFINITION_REPORT_SUBTYPE",
     "HOUSEKEEPING_REPORT_SUBTYPE",
     "HOUSEKEEPING_SERVICE_TYPE",
+    "MAX_HOUSEKEEPING_PARAMETERS",
     "ByteOrder",
     "CUCSatelliteTime",
     "DataFieldHeader",
@@ -47,10 +55,14 @@ __all__ = [
     "DataFieldHeaderTM",
     "EventID",
     "FaultID",
+    "HousekeepingCommandError",
     "HousekeepingParameter",
     "HousekeepingParameterDefinition",
     "HousekeepingParameterType",
     "HousekeepingReport",
+    "HousekeepingService",
+    "HousekeepingStructure",
+    "HousekeepingStructureDefinition",
     "HousekeepingValue",
     "PacketCategory",
     "PacketDataField",

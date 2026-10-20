@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import IntEnum
 from struct import pack, unpack
 from typing import Literal
 
-from .enums import DEFAULT_BYTE_ORDER, ByteOrder
+from .enums import DEFAULT_BYTE_ORDER, ByteOrder, FaultID
+from .packet import SourcePacket
 from .service import ServiceData, service_data
 
 HOUSEKEEPING_SERVICE_TYPE = 3
+HOUSEKEEPING_DEFINITION_REPORT_SUBTYPE = 10
 HOUSEKEEPING_REPORT_SUBTYPE = 25
+MAX_HOUSEKEEPING_PARAMETERS = 55
 
 
 class HousekeepingParameterType(IntEnum):
@@ -22,6 +26,72 @@ class HousekeepingParameterType(IntEnum):
 
 
 HousekeepingValue = int | float
+
+
+@dataclass(frozen=True)
+class HousekeepingStructureDefinition:
+    """A PUSUtilities ``DataSST10`` housekeeping structure definition."""
+
+    structure_id: int
+    collection_interval: int
+    parameter_ids: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.structure_id <= 0xFF:
+            raise ValueError("structure_id must fit in an unsigned 8-bit integer")
+        if not 1 <= self.collection_interval <= 0xFFFF:
+            raise ValueError(
+                "collection_interval must fit in a nonzero unsigned 16-bit integer"
+            )
+        if not 1 <= len(self.parameter_ids) <= MAX_HOUSEKEEPING_PARAMETERS:
+            raise ValueError("parameter_ids must contain between 1 and 55 entries")
+        if any(not 0 <= item <= 0xFFFFFFFF for item in self.parameter_ids):
+            raise ValueError("parameter IDs must fit in unsigned 32-bit integers")
+
+    def get_bytes(self, byte_order: ByteOrder = DEFAULT_BYTE_ORDER) -> bytes:
+        """Serialize as SID, collection interval, NPAR, and parameter IDs."""
+        order = _byte_order_name(byte_order)
+        return (
+            bytes((self.structure_id,))
+            + self.collection_interval.to_bytes(2, order)
+            + bytes((len(self.parameter_ids),))
+            + b"".join(item.to_bytes(4, order) for item in self.parameter_ids)
+        )
+
+    def to_service_data(self) -> ServiceData:
+        """Wrap this definition as TM(3,10)."""
+        return service_data(
+            HOUSEKEEPING_SERVICE_TYPE,
+            HOUSEKEEPING_DEFINITION_REPORT_SUBTYPE,
+            self.get_bytes(),
+        )
+
+    @classmethod
+    def from_service_data(
+        cls,
+        data: ServiceData,
+        byte_order: ByteOrder = DEFAULT_BYTE_ORDER,
+    ) -> HousekeepingStructureDefinition:
+        """Decode a PUSUtilities ``DataSST10`` payload."""
+        if (
+            data.service_type != HOUSEKEEPING_SERVICE_TYPE
+            or data.service_sub_type != HOUSEKEEPING_DEFINITION_REPORT_SUBTYPE
+        ):
+            raise ValueError("service data must be a TM(3,10) definition report")
+        if len(data.data) < 4:
+            raise ValueError("housekeeping definition is shorter than its header")
+        count = data.data[3]
+        if len(data.data) != 4 + count * 4:
+            raise ValueError("housekeeping definition length does not match NPAR")
+        order = _byte_order_name(byte_order)
+        return cls(
+            data.data[0],
+            int.from_bytes(data.data[1:3], order),
+            tuple(
+                int.from_bytes(data.data[offset : offset + 4], order)
+                for offset in range(4, len(data.data), 4)
+            ),
+        )
 
 
 def _byte_order_name(byte_order: ByteOrder) -> Literal["big", "little"]:
@@ -147,3 +217,157 @@ class HousekeepingReport:
             parameters.append(HousekeepingParameter(definition, value))
             offset += definition.number_of_bytes
         return cls(data.data[0], tuple(parameters))
+
+
+class HousekeepingCommandError(ValueError):
+    """A Service 3 management command failed validation or execution."""
+
+    def __init__(self, fault: FaultID) -> None:
+        super().__init__(fault.name)
+        self.fault = fault
+
+
+class HousekeepingStructure:
+    """Registered PUSUtilities housekeeping structure and its subscribers.
+
+    This is the deterministic simulator equivalent of
+    ``HouseKeeping.Structure``. Scheduling remains with the simulation loop;
+    this object owns the structure metadata and per-requester subscriptions.
+    """
+
+    def __init__(
+        self,
+        definition: HousekeepingStructureDefinition,
+        parameter_definitions: tuple[HousekeepingParameterDefinition, ...],
+        enabled_destinations: Iterable[int] = (),
+    ) -> None:
+        parameter_ids = tuple(item.parameter_id for item in parameter_definitions)
+        if parameter_ids != definition.parameter_ids:
+            raise ValueError(
+                "parameter definitions must match the structure parameter IDs"
+            )
+        self.definition = definition
+        self.parameter_definitions = parameter_definitions
+        self.enabled_destinations = set(enabled_destinations)
+
+    @property
+    def structure_id(self) -> int:
+        """Return the registered SID."""
+        return self.definition.structure_id
+
+    def add_subscriber(self, destination_prid: int) -> None:
+        """Enable periodic reports for a requester PRID."""
+        self.enabled_destinations.add(destination_prid)
+
+    def remove_subscriber(self, destination_prid: int) -> None:
+        """Disable periodic reports for a requester PRID."""
+        self.enabled_destinations.discard(destination_prid)
+
+    def report(self, values: Iterable[HousekeepingValue]) -> HousekeepingReport:
+        """Build a TM(3,25) report in registered parameter order."""
+        value_tuple = tuple(values)
+        if len(value_tuple) != len(self.parameter_definitions):
+            raise ValueError("housekeeping values must match the structure definition")
+        return HousekeepingReport(
+            self.structure_id,
+            tuple(
+                HousekeepingParameter(definition, value)
+                for definition, value in zip(
+                    self.parameter_definitions, value_tuple, strict=True
+                )
+            ),
+        )
+
+
+HousekeepingReportFactory = Callable[[HousekeepingStructure], HousekeepingReport]
+
+
+class HousekeepingService:
+    """PUSUtilities-compatible Service 3 structure registry and dispatcher."""
+
+    def __init__(self, local_prid: int) -> None:
+        self.local_prid = local_prid
+        self._structures: dict[int, HousekeepingStructure] = {}
+
+    def add_structure(self, structure: HousekeepingStructure) -> None:
+        """Register or replace a structure by SID, as PUSUtilities does."""
+        self._structures[structure.structure_id] = structure
+
+    def get_structure(self, structure_id: int) -> HousekeepingStructure | None:
+        """Return a registered structure, if present."""
+        return self._structures.get(structure_id)
+
+    def remove_structure(self, structure_id: int) -> None:
+        """Remove a structure from the registry."""
+        self._structures.pop(structure_id, None)
+
+    def periodic_packets(
+        self,
+        report_factory: HousekeepingReportFactory,
+        first_sequence: int,
+    ) -> tuple[SourcePacket, ...]:
+        """Create reports for every enabled structure/requester pair."""
+        packets: list[SourcePacket] = []
+        for structure_id in sorted(self._structures):
+            structure = self._structures[structure_id]
+            if not structure.enabled_destinations:
+                continue
+            report = report_factory(structure)
+            for destination in sorted(structure.enabled_destinations):
+                packets.append(
+                    self._packet(report, first_sequence + len(packets), destination)
+                )
+        return tuple(packets)
+
+    def handle_command(
+        self,
+        packet: SourcePacket,
+        report_factory: HousekeepingReportFactory | None,
+        sequence: int,
+    ) -> SourcePacket | None:
+        """Handle TC(3,5/6/9/136), returning telemetry where applicable."""
+        data = packet.packet_data_field.data
+        if (
+            data.service_type != HOUSEKEEPING_SERVICE_TYPE
+            or data.service_sub_type
+            not in (
+                5,
+                6,
+                9,
+                136,
+            )
+        ):
+            return None
+        if len(data.data) != 1:
+            raise HousekeepingCommandError(FaultID.LENGTH_DISCREP)
+        structure = self.get_structure(data.data[0])
+        if structure is None:
+            raise HousekeepingCommandError(FaultID.SID_NOT_DEFINED)
+
+        destination = packet.get_source_prid()
+        if data.service_sub_type == 5:
+            structure.add_subscriber(destination)
+            return None
+        if data.service_sub_type == 6:
+            structure.remove_subscriber(destination)
+            return None
+        if data.service_sub_type == 9:
+            return SourcePacket.get_source_packet(
+                structure.definition.to_service_data(),
+                local_prid=self.local_prid,
+                destination_prid=destination,
+                sequence_count=sequence,
+            )
+        if report_factory is None:
+            raise HousekeepingCommandError(FaultID.REPORT_ABORTED)
+        return self._packet(report_factory(structure), sequence, destination)
+
+    def _packet(
+        self, report: HousekeepingReport, sequence: int, destination_prid: int
+    ) -> SourcePacket:
+        return SourcePacket.get_source_packet(
+            report.to_service_data(),
+            local_prid=self.local_prid,
+            destination_prid=destination_prid,
+            sequence_count=sequence,
+        )

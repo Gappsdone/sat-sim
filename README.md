@@ -275,7 +275,17 @@ those 36 IDs in the order declared by `TCS_HOUSEKEEPING_DEFINITIONS`; the plugin
 registers their value metadata but does not create a housekeeping structure.
 Illumination and electrical-power values are omitted because `plugin_tcs`
 defines no parameter IDs for them.
-Service 3 definition-management telecommands are not implemented yet.
+The reusable `pus_library.HousekeepingService` mirrors PUSUtilities'
+`HouseKeeping.Structure` registry and per-requester subscription behavior while
+leaving scheduling in the deterministic simulation loop rather than starting a
+wall-clock worker thread. SID 1 has a collection interval of one simulator step
+and is enabled for ground PRID 0 by default. TC(3,5) and TC(3,6) enable and
+disable its periodic reports for the requesting PRID. TC(3,136) requests one
+immediate TM(3,25), while TC(3,9) returns its PUSUtilities-compatible TM(3,10)
+definition: SID, 16-bit collection interval, 8-bit parameter count, and the
+ordered 32-bit parameter IDs. Dynamic structure creation and deletion through
+TC(3,1)/(3,3) are not supported because the simulator exposes one fixed
+plugin-defined structure.
 
 The bidirectional UDP socket is configured through environment variables:
 

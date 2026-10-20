@@ -4,10 +4,14 @@ import pytest
 
 from pus_library import (
     ByteOrder,
+    HousekeepingCommandError,
     HousekeepingParameter,
     HousekeepingParameterDefinition,
     HousekeepingParameterType,
     HousekeepingReport,
+    HousekeepingService,
+    HousekeepingStructure,
+    HousekeepingStructureDefinition,
     PacketErrorControl,
     SourcePacket,
     service_data,
@@ -65,6 +69,91 @@ def test_housekeeping_report_rejects_invalid_data() -> None:
         HousekeepingReport.from_service_data(
             service_data(3, 25, b"\x01"), (definition,)
         )
+
+
+@pytest.mark.parametrize("byte_order", list(ByteOrder))
+def test_housekeeping_definition_round_trip(byte_order: ByteOrder) -> None:
+    definition = HousekeepingStructureDefinition(
+        0xFF, 0xFFFF, (0, 0x01020304, 0xFFFFFFFF)
+    )
+
+    encoded = definition.get_bytes(byte_order)
+
+    assert encoded[0] == 0xFF
+    assert encoded[3] == 3
+    assert (
+        HousekeepingStructureDefinition.from_service_data(
+            service_data(3, 10, encoded), byte_order
+        )
+        == definition
+    )
+
+
+def test_housekeeping_definition_rejects_invalid_boundaries() -> None:
+    with pytest.raises(ValueError, match="collection_interval"):
+        HousekeepingStructureDefinition(1, 0, (1,))
+    with pytest.raises(ValueError, match="between 1 and 55"):
+        HousekeepingStructureDefinition(1, 1, ())
+    with pytest.raises(ValueError, match="between 1 and 55"):
+        HousekeepingStructureDefinition(1, 1, tuple(range(56)))
+    with pytest.raises(ValueError, match="length does not match NPAR"):
+        HousekeepingStructureDefinition.from_service_data(
+            service_data(3, 10, b"\x01\x00\x01\x01")
+        )
+
+
+def test_housekeeping_structure_owns_metadata_and_subscribers() -> None:
+    definitions = (
+        HousekeepingParameterDefinition(7, 1, HousekeepingParameterType.SIGNED_INTEGER),
+    )
+    structure = HousekeepingStructure(
+        HousekeepingStructureDefinition(2, 4, (7,)), definitions, (3,)
+    )
+
+    structure.add_subscriber(8)
+    structure.remove_subscriber(3)
+
+    assert structure.enabled_destinations == {8}
+    assert structure.report((42,)).get_bytes() == b"\x02\x2a"
+    with pytest.raises(ValueError, match="parameter definitions"):
+        HousekeepingStructure(HousekeepingStructureDefinition(2, 4, (8,)), definitions)
+    with pytest.raises(ValueError, match="values"):
+        structure.report(())
+
+
+def test_housekeeping_service_registry_and_command_dispatch() -> None:
+    definition = HousekeepingParameterDefinition(
+        7, 1, HousekeepingParameterType.SIGNED_INTEGER
+    )
+    structure = HousekeepingStructure(
+        HousekeepingStructureDefinition(2, 4, (7,)), (definition,)
+    )
+    service = HousekeepingService(local_prid=5)
+    service.add_structure(structure)
+
+    def command(subtype: int, sid: int = 2) -> SourcePacket:
+        return SourcePacket.get_source_packet(
+            service_data(3, subtype, bytes((sid,))),
+            local_prid=9,
+            destination_prid=5,
+        )
+
+    def factory(registered: HousekeepingStructure) -> HousekeepingReport:
+        return registered.report((42,))
+
+    assert service.handle_command(command(5), factory, 0) is None
+    assert structure.enabled_destinations == {9}
+    assert service.periodic_packets(factory, 4)[0].get_destination_prid() == 9
+    response = service.handle_command(command(9), factory, 5)
+    assert response is not None
+    assert response.packet_data_field.data.service_sub_type == 10
+    assert service.handle_command(command(6), factory, 6) is None
+    assert structure.enabled_destinations == set()
+    with pytest.raises(HousekeepingCommandError, match="SID_NOT_DEFINED"):
+        service.handle_command(command(136, 3), factory, 7)
+
+    service.remove_structure(2)
+    assert service.get_structure(2) is None
 
 
 def test_housekeeping_ids_use_pusutilities_framework_widths() -> None:
@@ -143,4 +232,18 @@ def test_tcs_structure_matches_plugin_parameter_metadata() -> None:
     assert all(
         item.parameter_type is HousekeepingParameterType.SIGNED_INTEGER
         for item in TCS_HOUSEKEEPING_DEFINITIONS[27:]
+    )
+
+
+def test_iss_structure_definition_matches_pusutilities_data_sst10() -> None:
+    from sat_sim.services.housekeeping import ISSHousekeepingService
+
+    definition = ISSHousekeepingService().definition
+
+    assert definition.get_bytes() == (
+        b"\x01\x00\x01\x24"
+        + b"".join(
+            item.parameter_id.to_bytes(4, "big")
+            for item in TCS_HOUSEKEEPING_DEFINITIONS
+        )
     )
