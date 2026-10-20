@@ -2,39 +2,37 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import uvicorn
 
 from sat_sim import app
+from sat_sim.factory import simulation_factory
+from sat_sim.scenarios.iss_scenario import ISSScenario
+from sat_sim.simulation import Simulation
 
 
 def test_main_starts_iss_simulation_with_cli_configuration(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    scenario = object()
     calls: dict[str, Any] = {}
     simulation = SimpleNamespace(run=lambda: calls.update(ran=True))
 
-    def create_scenario(*, timeout: float) -> object:
-        calls["timeout"] = timeout
-        return scenario
-
-    def create_simulation(configured_scenario: object, *, interval: float) -> object:
-        calls.update(scenario=configured_scenario, interval=interval)
+    def create_simulation(name: str, *, interval: float, timeout: float) -> object:
+        calls.update(name=name, interval=interval, timeout=timeout)
         return simulation
 
-    monkeypatch.setattr(app, "ISSScenario", create_scenario)
-    monkeypatch.setattr(app, "Simulation", create_simulation)
+    monkeypatch.setattr(simulation_factory, "create", create_simulation)
 
-    app.main(["--interval", "0.25", "--tle-timeout", "3.5"])
+    app.main(["--offline", "--interval", "0.25", "--tle-timeout", "3.5"])
 
     assert calls == {
         "timeout": 3.5,
-        "scenario": scenario,
+        "name": "iss",
         "interval": 0.25,
         "ran": True,
     }
     assert capsys.readouterr().out == (
-        "Starting the ISS simulation. Press Ctrl+C to stop.\nISS simulation stopped.\n"
+        "Starting the iss simulation. Press Ctrl+C to stop.\niss simulation stopped.\n"
     )
 
 
@@ -57,6 +55,43 @@ def test_parser_help_describes_simulation_options(
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
-    assert "Run the live ISS spacecraft simulation." in output
+    assert "Run a spacecraft simulation." in output
+    assert "--scenario" in output
     assert "--interval" in output
     assert "--tle-timeout" in output
+
+
+def test_parser_rejects_unknown_scenario() -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        app.main(["--scenario", "unknown"])
+    assert exit_info.value.code == 2
+
+
+def test_main_serves_selected_simulation_online(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = ISSScenario()
+    simulation = Simulation(scenario, interval=0.5)
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(
+        simulation_factory, "create", lambda *_args, **_kwargs: simulation
+    )
+    monkeypatch.setattr(
+        app,
+        "create_live_app",
+        lambda *, scenario, interval: (
+            calls.update(scenario=scenario, interval=interval) or object()
+        ),
+    )
+    monkeypatch.setattr(
+        uvicorn,
+        "run",
+        lambda api, *, host, port: calls.update(api=api, host=host, port=port),
+    )
+
+    app.main(["--host", "0.0.0.0", "--port", "9000", "--interval", "0.5"])
+
+    assert calls["scenario"] is scenario
+    assert calls["interval"] == 0.5
+    assert calls["host"] == "0.0.0.0"
+    assert calls["port"] == 9000

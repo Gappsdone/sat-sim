@@ -4,7 +4,6 @@ from time import sleep
 from typing import Any, ClassVar
 
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
 from pus_library import SourcePacket
@@ -72,7 +71,6 @@ def test_live_app_runs_publisher_during_lifespan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakePublisher.instances.clear()
-    monkeypatch.setattr(server, "ISSScenario", object)
     monkeypatch.setattr(server, "ISSTelemetryPublisher", FakePublisher)
     monkeypatch.setattr(
         server, "describe_iss_scenario", lambda _scenario: description()
@@ -100,14 +98,15 @@ def test_live_app_rejects_nonpositive_interval() -> None:
 def test_server_main_passes_cli_configuration_to_uvicorn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sentinel = object()
     called: dict[str, Any] = {}
-    monkeypatch.setattr(server, "create_live_app", lambda *, interval: sentinel)
+    from sat_sim import app as simulation_app
 
-    def fake_run(app: object, *, host: str, port: int) -> None:
-        called.update(app=app, host=host, port=port)
+    monkeypatch.setattr(
+        simulation_app, "main", lambda arguments: called.update(arguments=arguments)
+    )
 
-    monkeypatch.setattr(uvicorn, "run", fake_run)
     server.main(["--host", "0.0.0.0", "--port", "9000", "--interval", "0.5"])
 
-    assert called == {"app": sentinel, "host": "0.0.0.0", "port": 9000}
+    assert called == {
+        "arguments": ["--host", "0.0.0.0", "--port", "9000", "--interval", "0.5"]
+    }

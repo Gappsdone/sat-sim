@@ -32,14 +32,17 @@ or with the installed console script:
 uv run sat-sim
 ```
 
-Both commands fetch the current ISS TLE from CelesTrak, then print the
-propagated ECI position, velocity, ADCS state, power state, and nine-channel
-thermal telemetry once per step. Configure the scheduler interval and TLE
-request timeout when needed:
+Both commands start the live telemetry API on `127.0.0.1:8000`, advancing the
+selected simulation and serving it to the Cesium frontend. Configure the step
+interval, TLE request timeout, and API bind address when needed:
 
 ```shell
-uv run sat-sim --interval 0.5 --tle-timeout 5
+uv run sat-sim --scenario iss --interval 0.5 --tle-timeout 5
 ```
+
+Use `--offline` to run the terminal-only simulation instead. The online
+telemetry publisher currently supports the ISS scenario; additional scenarios
+will need telemetry adapters before they can run online.
 
 Run `uv run sat-sim --help` for the complete CLI reference.
 
@@ -325,7 +328,7 @@ thermal channels in a responsive systems panel.
 Start the live simulation API and the frontend in separate terminals:
 
 ```shell
-uv run sat-sim-telemetry
+uv run sat-sim
 cd frontend && npm install && npm run dev
 ```
 

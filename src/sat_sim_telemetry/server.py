@@ -1,12 +1,10 @@
 """Runnable live ISS telemetry server for browser frontends."""
 
-import argparse
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-import uvicorn
 from fastapi import FastAPI
 
 from sat_sim.scenarios.iss_scenario import ISSScenario
@@ -19,6 +17,7 @@ from sat_sim_telemetry.store import TelemetryStore
 
 def create_live_app(
     *,
+    scenario: ISSScenario | None = None,
     interval: float = 1.0,
     pus_channel: PUSUDPChannel | None = None,
 ) -> FastAPI:
@@ -26,7 +25,7 @@ def create_live_app(
     if interval <= 0:
         raise ValueError("interval must be greater than zero")
 
-    scenario = ISSScenario()
+    scenario = scenario or ISSScenario()
     store = TelemetryStore()
     channel = pus_channel or PUSUDPChannel(PUSUDPConfiguration.from_environment())
     publisher = ISSTelemetryPublisher(scenario, store, channel)
@@ -73,17 +72,10 @@ def create_live_app(
 
 
 def main(arguments: Sequence[str] | None = None) -> None:
-    """Run the live telemetry API with Uvicorn."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=8000, type=int)
-    parser.add_argument("--interval", default=1.0, type=float)
-    options = parser.parse_args(arguments)
-    uvicorn.run(
-        create_live_app(interval=options.interval),
-        host=options.host,
-        port=options.port,
-    )
+    """Compatibility entry point; use ``sat-sim`` for new invocations."""
+    from sat_sim.app import main as simulation_main
+
+    simulation_main(arguments)
 
 
 if __name__ == "__main__":
