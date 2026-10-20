@@ -286,7 +286,7 @@ The bidirectional UDP socket is configured through environment variables:
 
 Inbound datagrams are parsed as complete PUS source packets and discarded when
 their framing or CRC is invalid. Valid packets enter the service-dispatch path;
-Service 3 management telecommands are the next planned consumer.
+supported telecommands are wrapped in Service 1 verification reports.
 
 ```python
 from sat_sim.scenarios.iss_scenario import ISSScenario
@@ -351,6 +351,16 @@ The port's wire-format and regression tests are in `tests/test_pus_library.py`.
 The original Java JUnit suite is separate in the source library checkout; its
 Maven configuration skips tests by default, so run it explicitly with
 `mvn test -DskipTests=false`.
+
+### PUS service 1 telecommand verification
+
+The live dispatcher emits TM(1,1) acceptance-success and TM(1,7)
+execution-completion-success reports when their corresponding TC acknowledgement
+flags are set. Unsupported commands or invalid headers receive TM(1,2), while
+invalid application data receives TM(1,8). Each report references the original
+TC packet ID and sequence control; failures append a 16-bit fault ID. This
+application-data layout matches PUSUtilities Java `VerificationReport` and
+`DataSST1`, `DataSST2`, `DataSST7`, and `DataSST8`.
 
 ### PUS service 17 connection test
 

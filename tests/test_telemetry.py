@@ -173,11 +173,73 @@ def test_publisher_answers_service_17_before_first_step(
     publisher.consume(request)
 
     assert publisher.last_consumed_packet is request
-    assert len(pus.packets) == 1
-    response = pus.packets[0]
+    assert [
+        packet.packet_data_field.data.service_sub_type for packet in pus.packets
+    ] == [
+        1,
+        2,
+        7,
+    ]
+    response = pus.packets[1]
     assert response.packet_data_field.data.service_sub_type == 2
     assert response.get_destination_prid() == 23
-    assert response.packet_header.sequence_control.sequence_count == 0
+    assert response.packet_header.sequence_control.sequence_count == 1
+
+
+def test_publisher_honors_success_report_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pus_library import TCDataFieldHeader, service_data
+    from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
+
+    scenario, _timestamp = make_scenario(monkeypatch)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, TelemetryStore(), pus)
+    request = SourcePacket.get_source_packet(
+        service_data(17, 1), destination_prid=ISS_APPLICATION_PROCESS_ID
+    )
+    header = request.packet_data_field.data_field_header
+    assert isinstance(header, TCDataFieldHeader)
+    header.request_acceptance_report = False
+    header.request_execution_completion_report = False
+
+    publisher.consume(request)
+
+    assert [packet.packet_data_field.data.service_type for packet in pus.packets] == [
+        17
+    ]
+
+
+def test_publisher_reports_parameter_execution_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pus_library import FaultID, service_data
+    from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
+
+    scenario, timestamp = make_scenario(monkeypatch)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, TelemetryStore(), pus)
+    publisher.step(timestamp + timedelta(seconds=1))
+    capsys.readouterr()
+    pus.packets.clear()
+    request = SourcePacket.get_source_packet(
+        service_data(140, 1, b""), destination_prid=ISS_APPLICATION_PROCESS_ID
+    )
+
+    publisher.consume(request)
+
+    assert [
+        packet.packet_data_field.data.service_sub_type for packet in pus.packets
+    ] == [
+        1,
+        8,
+    ]
+    failure = pus.packets[-1].packet_data_field.data.data
+    assert failure[:4] == request.get_bytes()[:4]
+    assert (
+        int.from_bytes(failure[4:6], "big")
+        == FaultID.ILLEGAL_OR_INCONSISTENT_APPLICATION_DATA
+    )
 
 
 def test_api_serves_metadata_latest_snapshot_and_websocket(
