@@ -155,6 +155,31 @@ def test_publisher_steps_scenario_and_increments_sequence(
     assert publisher.last_consumed_packet is packet
 
 
+def test_publisher_answers_service_17_before_first_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pus_library import service_data
+    from sat_sim.services.housekeeping import ISS_APPLICATION_PROCESS_ID
+
+    scenario, _timestamp = make_scenario(monkeypatch)
+    pus = FakePUSPublisher()
+    publisher = ISSTelemetryPublisher(scenario, TelemetryStore(), pus)
+    request = SourcePacket.get_source_packet(
+        service_data(17, 1),
+        local_prid=23,
+        destination_prid=ISS_APPLICATION_PROCESS_ID,
+    )
+
+    publisher.consume(request)
+
+    assert publisher.last_consumed_packet is request
+    assert len(pus.packets) == 1
+    response = pus.packets[0]
+    assert response.packet_data_field.data.service_sub_type == 2
+    assert response.get_destination_prid() == 23
+    assert response.packet_header.sequence_control.sequence_count == 0
+
+
 def test_api_serves_metadata_latest_snapshot_and_websocket(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

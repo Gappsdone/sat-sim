@@ -5,6 +5,7 @@ from typing import Protocol
 
 from pus_library import SourcePacket
 from sat_sim.scenarios.iss_scenario import ISSScenario, ISSScenarioState
+from sat_sim.services.connection import handle_connection_test
 from sat_sim.services.housekeeping import create_iss_housekeeping_packet
 from sat_sim.services.parameters import ParameterCommandError, handle_parameter_command
 from sat_sim_telemetry.models import TelemetryFrame
@@ -49,6 +50,11 @@ class ISSTelemetryPublisher:
     def consume(self, packet: SourcePacket) -> None:
         """Accept an inbound PUS packet for service-specific dispatch."""
         self.last_consumed_packet = packet
+        response = handle_connection_test(packet, self._sequence)
+        if response is not None:
+            self.pus.publish(response)
+            self._sequence += 1
+            return
         if self._latest_state is None:
             return
         try:

@@ -352,6 +352,14 @@ The original Java JUnit suite is separate in the source library checkout; its
 Maven configuration skips tests by default, so run it explicitly with
 `mvn test -DskipTests=false`.
 
+### PUS service 17 connection test
+
+The live simulator handles a TC(17,1) connection-test request addressed to the
+ISS application process and returns an empty TM(17,2) response to the request's
+source PRID. This is available immediately after publisher construction, before
+the first simulation step. The empty application-data layout and PRID reversal
+match PUSUtilities Java `st17.DataSST1`.
+
 ## ECS example
 
 Create a world, add a satellite with an ECEF position, and advance it with the
