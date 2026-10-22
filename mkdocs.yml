@@ -1,0 +1,11 @@
+site_name: sat-sim
+site_url: https://gappsdone.github.io/sat-sim/
+repo_url: https://github.com/Gappsdone/sat-sim
+strict: true
+nav:
+  - Home: index.md
+  - Scenarios: scenarios.md
+  - Simulation systems: systems.md
+  - Telemetry and frontend: telemetry.md
+  - PUS library and services: pus.md
+  - ECS and orbital adapter: ecs-and-orbits.md

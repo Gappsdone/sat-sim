@@ -13,6 +13,7 @@ __pycache__/
 # Build artifacts
 build/
 dist/
+site/
 *.egg-info/
 frontend/node_modules/
 frontend/dist/
