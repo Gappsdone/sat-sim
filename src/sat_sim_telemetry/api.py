@@ -19,6 +19,7 @@ def create_app(
     *,
     allowed_origins: Sequence[str] = (),
     lifespan: Lifespan | None = None,
+    health_check: Callable[[], bool] | None = None,
 ) -> FastAPI:
     """Build a versioned telemetry API around a store and scenario description."""
     app = FastAPI(title="sat-sim telemetry", version="1.0.0", lifespan=lifespan)
@@ -43,6 +44,13 @@ def create_app(
         if frame is None:
             raise HTTPException(status_code=503, detail="telemetry is not available")
         return frame
+
+    @app.get("/api/v1/health")
+    def health() -> dict[str, str]:
+        frame = store.current
+        if frame is None or (health_check is not None and not health_check()):
+            raise HTTPException(status_code=503, detail="telemetry is not healthy")
+        return {"status": "ok"}
 
     @app.websocket("/api/v1/telemetry")
     async def telemetry(websocket: WebSocket) -> None:

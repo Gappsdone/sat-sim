@@ -80,6 +80,7 @@ def test_live_app_runs_publisher_during_lifespan(
     app = server.create_live_app(interval=0.001, pus_channel=channel)  # type: ignore[arg-type]
     with TestClient(app) as client:
         response = client.get("/api/v1/scenario")
+        assert client.get("/api/v1/health").status_code == 503
         sleep(0.01)
 
     assert response.status_code == 200
@@ -88,6 +89,29 @@ def test_live_app_runs_publisher_during_lifespan(
     assert publisher.steps >= 2
     assert channel.opened
     assert channel.closed
+
+
+def test_failed_publisher_marks_health_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingPublisher(FakePublisher):
+        def step(self, timestamp: datetime) -> tuple[None, None]:
+            super().step(timestamp)
+            if self.steps > 1:
+                raise RuntimeError("step failed")
+            return None, None
+
+    monkeypatch.setattr(server, "ISSTelemetryPublisher", FailingPublisher)
+    monkeypatch.setattr(
+        server, "describe_iss_scenario", lambda _scenario: description()
+    )
+    app = server.create_live_app(interval=0.001, pus_channel=FakePUSChannel())  # type: ignore[arg-type]
+    with TestClient(app) as client:
+        sleep(0.02)
+        assert client.get("/api/v1/health").status_code == 503
+    assert "telemetry task publisher failed" in caplog.text
+    assert "RuntimeError: step failed" in caplog.text
 
 
 def test_live_app_rejects_nonpositive_interval() -> None:

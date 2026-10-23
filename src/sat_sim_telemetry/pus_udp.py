@@ -97,9 +97,20 @@ class PUSUDPChannel:
         """Receive, parse, and CRC-validate one PUS packet datagram."""
         if self._socket is None:
             raise RuntimeError("PUS UDP channel is not open")
-        payload, address = await asyncio.get_running_loop().sock_recvfrom(
-            self._socket, MAX_UDP_PAYLOAD
-        )
+        loop = asyncio.get_running_loop()
+        ready = loop.create_future()
+        descriptor = self._socket.fileno()
+
+        def readable() -> None:
+            if not ready.done():
+                ready.set_result(None)
+
+        loop.add_reader(descriptor, readable)
+        try:
+            await ready
+            payload, address = self._socket.recvfrom(MAX_UDP_PAYLOAD)
+        finally:
+            loop.remove_reader(descriptor)
         packet = SourcePacket(payload, ByteOrder.BIG_ENDIAN)
         if packet.get_bytes() != payload:
             raise ValueError("UDP datagram must contain exactly one PUS packet")

@@ -145,9 +145,11 @@ class ISSScenario(Scenario):
         aerodynamic_drag_enabled: bool = True,
         solar_radiation_pressure_enabled: bool = True,
         residual_magnetic_dipole_enabled: bool = True,
+        print_steps: bool = True,
     ) -> None:
         super().__init__()
         self.timeout = timeout
+        self.print_steps = print_steps
         self.fetcher = fetcher
         self.orbital: OrbitalLike | None = None
         self.entity: Entity | None = None
@@ -280,7 +282,8 @@ class ISSScenario(Scenario):
             wheel_speeds_rad_s=wheels.speeds_rad_s,
             wheel_saturated=adcs_status.wheel_saturated,
         )
-        self.print_state(state)
+        if self.print_steps:
+            self.print_state(state)
         return state
 
     def print_state(self, state: ISSScenarioState) -> None:
