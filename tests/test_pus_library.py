@@ -23,6 +23,13 @@ from pus_library import (
 )
 
 
+def test_source_packet_sequence_wraps_at_14_bits() -> None:
+    packet = SourcePacket.get_source_packet(service_data(17, 1), sequence_count=1 << 14)
+    assert packet.packet_header.sequence_control.sequence_count == 0
+    restored = SourcePacket(packet.get_bytes(), ByteOrder.BIG_ENDIAN)
+    assert restored.packet_header.sequence_control.sequence_count == 0
+
+
 @pytest.mark.parametrize("order", list(ByteOrder))
 def test_packet_id_and_sequence_control_round_trip(order: ByteOrder) -> None:
     packet_id = PacketID(

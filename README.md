@@ -3,6 +3,8 @@
 A runnable spacecraft simulator built on a simple entity-component system (ECS),
 with a live ISS scenario and Cesium telemetry dashboard.
 
+![Live ISS simulation dashboard after 10 seconds](media/iss-dashboard.png)
+
 ## Requirements
 
 - Python 3.12 or newer

@@ -218,7 +218,7 @@ class SourcePacket(PacketSector):
         field = PacketDataField(dfh, data)
         header = PacketHeader(
             packet_id,
-            PacketSequenceControl(3, sequence_count),
+            PacketSequenceControl(3, sequence_count % (1 << 14)),
             len(dfh.get_bytes()) + len(data.data) + 2,
         )
         return cls(header, field)
