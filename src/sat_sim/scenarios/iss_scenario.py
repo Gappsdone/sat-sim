@@ -223,6 +223,7 @@ class ISSScenario(Scenario):
         self.world.add(self.adcs_power_entity, self.adcs_power)
         self.tcs.bind_spacecraft_entity(self.entity)
         self.adcs_system.initialize(self.world, self.entity)
+        self.pcdu_system.update(self.world, self.entity, 0.0, timestamp)
         self._last_thermal_timestamp = timestamp
 
     def step(self, timestamp: datetime) -> ISSScenarioState:

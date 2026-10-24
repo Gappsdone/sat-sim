@@ -45,6 +45,9 @@ def test_setup_initializes_orbit_and_temperature_threshold(
     assert len(list(scenario.world.query(TemperatureSensor, HeaterCommand))) == 9
     assert len(scenario.tcs.sensors) == len(scenario.tcs.heaters) == 9
     assert scenario.tcs.heater_threshold_celsius == 24.0
+    assert scenario.pcdu.is_sunlit is True
+    assert scenario.pcdu.consumed_power_w > 0.0
+    assert scenario.pcdu.charge_wh == 500.0
     assert scenario._last_thermal_timestamp == timestamp
 
 

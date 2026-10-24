@@ -111,9 +111,9 @@ def test_description_separates_static_geometry_from_streamed_state(
     assert description.entity_component_values["iss"]["PCDU"] == {
         "capacity_wh": 1_000.0,
         "charge_wh": 500.0,
-        "generated_power_w": 0.0,
-        "consumed_power_w": 0.0,
-        "is_sunlit": None,
+        "generated_power_w": 100.0,
+        "consumed_power_w": 8.0,
+        "is_sunlit": True,
     }
     assert (
         description.entity_component_values["iss"]["ADCSModeState"]["current"]

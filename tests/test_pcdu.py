@@ -39,6 +39,20 @@ def test_sun_facing_panel_charges_battery_at_peak_rate() -> None:
     assert pcdu.charge_wh == pytest.approx(60.0)
 
 
+def test_zero_duration_update_initializes_power_without_charging() -> None:
+    sun = solar_direction_eci(REFERENCE_TIME)
+    world, spacecraft, pcdu = make_power_world(sun)
+    load_entity = world.create()
+    world.add(load_entity, PowerConsumer(25.0))
+
+    PCDUSystem.update(world, spacecraft, 0.0, REFERENCE_TIME)
+
+    assert pcdu.is_sunlit is True
+    assert pcdu.generated_power_w == pytest.approx(100.0)
+    assert pcdu.consumed_power_w == 25.0
+    assert pcdu.charge_wh == 50.0
+
+
 def test_panel_angle_scales_charging_and_back_face_produces_nothing() -> None:
     sun = solar_direction_eci(REFERENCE_TIME)
     perpendicular_length = (sun[0] ** 2 + sun[1] ** 2) ** 0.5

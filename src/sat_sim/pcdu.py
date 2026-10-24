@@ -63,8 +63,6 @@ class PCDUSystem:
         world: World, spacecraft_entity: Entity, delta_time: float, timestamp: datetime
     ) -> PCDU:
         _require_nonnegative("delta_time", delta_time)
-        if delta_time == 0.0:
-            raise ValueError("delta_time must be greater than zero")
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
 
