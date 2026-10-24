@@ -1,13 +1,15 @@
 import {
   ArcGisMapServerImageryProvider,
+  Cartesian2,
   Cartesian3,
   ClockRange,
   Color,
   Entity,
-  HeadingPitchRange,
   ImageryLayer,
   Ion,
   JulianDate,
+  LabelGraphics,
+  LabelStyle,
   Matrix3,
   NearFarScalar,
   PathGraphics,
@@ -173,10 +175,19 @@ const iss = new Entity({
   orientation: orientations,
   point: new PointGraphics({
     color: Color.fromCssColorString("#7ce7ff"),
-    pixelSize: 10,
+    pixelSize: 14,
     outlineColor: Color.WHITE,
     outlineWidth: 2,
-    scaleByDistance: new NearFarScalar(1e5, 1.4, 2e7, 0.5),
+    scaleByDistance: new NearFarScalar(1e5, 1.4, 2e7, 0.9),
+  }),
+  label: new LabelGraphics({
+    text: "ISS",
+    font: "600 15px sans-serif",
+    fillColor: Color.WHITE,
+    outlineColor: Color.fromCssColorString("#031016"),
+    outlineWidth: 3,
+    style: LabelStyle.FILL_AND_OUTLINE,
+    pixelOffset: new Cartesian2(27, -13),
   }),
   path: new PathGraphics({
     leadTime: 0,
@@ -207,9 +218,16 @@ function ingest(frame: TelemetryFrame): void {
   viewer.scene.requestRender();
   if (!hasFramed) {
     hasFramed = true;
-    void viewer.flyTo(iss, {
+    // Frame Earth around the station's ground track, rather than aiming at
+    // the station itself (which pushes the globe below the viewport).
+    const outward = Cartesian3.normalize(fixed, new Cartesian3());
+    viewer.camera.flyTo({
+      destination: Cartesian3.multiplyByScalar(outward, 19_000_000, new Cartesian3()),
+      orientation: {
+        direction: Cartesian3.negate(outward, new Cartesian3()),
+        up: Cartesian3.UNIT_Z,
+      },
       duration: 1.5,
-      offset: new HeadingPitchRange(0, -0.45, 12_000_000),
     });
   }
   updateDashboard(frame, state);
