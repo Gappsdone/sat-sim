@@ -29,6 +29,10 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. Run `uv run sat-sim --help` for CLI options.
 
+In VS Code, after `uv sync` and `cd frontend && npm install`, use
+**Terminal → Run Task → Backend + Frontend** to start both services in parallel.
+Each runs in its own terminal and can be stopped independently.
+
 ## Documentation
 
 [Read the full documentation on GitHub Pages](https://gappsdone.github.io/sat-sim/)
